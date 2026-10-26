@@ -41,6 +41,7 @@ internal sealed class MahjongAssets
             tileMaterials[name] = CreateMaterial("MoonMahjong tile " + name, texture, TileSmoothness);
             handTileMaterials[name] = CreateMaterial("MoonMahjong hand tile " + name, texture, TileSmoothness, HandTint);
         }
+        HiddenTileMaterial = CreateMaterial("MoonMahjong hidden tile", LoadTexture(Path.Combine(directory, "tiles", "blank.png")), TileSmoothness);
         LoadSounds(directory);
 
         // The 3D table top (scripts/table_mesh.py), textured from parts of NaoMahjong's table painting.
@@ -115,8 +116,9 @@ internal sealed class MahjongAssets
     }
     public Material FeltMaterial { get; }
 
-    // A face-down or still-unknown tile still needs a material for its back and sides; any tile texture has them.
-    public Material HiddenTileMaterial => tileMaterials["5z"];
+    // A tile this player hasn't seen (face down, or in someone else's hand): a blank face (tiles/blank.png, the white
+    // dragon's face without its index, so it doesn't read as a white dragon) with the usual back and sides.
+    public Material HiddenTileMaterial { get; }
 
     // Riichi sticks are plain white (the layout supplies their size and pose).
     public Material RiichiStickMaterial => riichiStickMaterial ??= CreatePlainMaterial("MoonMahjong riichi stick", new Color(0.95f, 0.95f, 0.93f));

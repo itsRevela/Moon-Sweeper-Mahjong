@@ -47,10 +47,11 @@ def stub_mesh(monkeypatch):
     monkeypatch.setattr(prepare_assets, "split_table_texture", lambda png, out: None)
 
 
-def test_prepare_copies_all_37_tile_textures(tmp_path, stub_mesh):
+def test_prepare_writes_all_37_tile_textures(tmp_path, stub_mesh):
     out = tmp_path / "out"
     prepare_assets.prepare(_fake_nao(tmp_path), out, _fake_sounds(tmp_path))
-    assert len(list((out / "tiles").glob("*.png"))) == 37
+    assert all((out / "tiles" / f"{name}.png").is_file() for name in prepare_assets.TILE_NAMES)
+    assert len(prepare_assets.TILE_NAMES) == 37
 
 
 def test_prepare_writes_upscaled_indexed_tile_textures(tmp_path, stub_mesh):
@@ -63,7 +64,7 @@ def test_prepare_manifest_lists_every_output_file(tmp_path, stub_mesh):
     out = tmp_path / "out"
     manifest = prepare_assets.prepare(_fake_nao(tmp_path), out, _fake_sounds(tmp_path))
     expected = ({"table.png", "tile_mesh.json", "sounds.json"} | set(table_mesh.MESHES)
-                | {f"tiles/{n}.png" for n in prepare_assets.TILE_NAMES}
+                | {f"tiles/{n}.png" for n in prepare_assets.TILE_NAMES} | {"tiles/blank.png"}
                 | {f"sounds/{n}.f32" for n in sound_assets.SOUNDS})
     assert set(manifest) == expected
 
@@ -104,3 +105,9 @@ def test_prepare_fails_on_a_missing_sound_without_writing(tmp_path, stub_mesh):
     with pytest.raises(prepare_assets.AssetError, match="ron.wav"):
         prepare_assets.prepare(_fake_nao(tmp_path), out, _fake_sounds(tmp_path, skip="ron"))
     assert not out.exists()
+
+
+def test_prepare_writes_a_blank_face_for_hidden_tiles(tmp_path, stub_mesh):
+    out = tmp_path / "out"
+    prepare_assets.prepare(_fake_nao(tmp_path), out, _fake_sounds(tmp_path))
+    assert Image.open(out / "tiles" / "blank.png").size == (62 * tile_index.UPSCALE, 59 * tile_index.UPSCALE)

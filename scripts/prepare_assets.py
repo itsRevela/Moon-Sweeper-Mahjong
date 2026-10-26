@@ -62,6 +62,9 @@ def prepare(nao: Path, out: Path, sounds: Path = DEFAULT_SOUNDS) -> dict[str, st
                 tile_index.index_tile(image, Path(target).stem, face_u).save(out / target)
         else:
             shutil.copyfile(source, out / target)
+    # Hidden tiles: the white dragon's blank face without its "Wh" (with it, unknown tiles read as white dragons).
+    with Image.open(sources["tiles/5z.png"]) as image:
+        tile_index.plain_tile(image, face_u).save(out / "tiles" / "blank.png")
     (out / "tile_mesh.json").write_text(json.dumps(tile_shape.rounded_tile(mesh), separators=(",", ":")), encoding="utf-8")
     sound_assets.prepare(sounds, out)
     split_table_texture(sources["table.png"], out)

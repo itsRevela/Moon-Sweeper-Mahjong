@@ -64,13 +64,7 @@ def index_tile(source: Image.Image, name: str, face_u: float) -> Image.Image:
     if name not in LABELS:
         raise KeyError(f"no index label for tile {name!r}")
     source = source.convert("RGBA")
-    width, height = source.size
-    face_px = round(face_u * width)
-    if not 0 < face_px < width:
-        raise ValueError(f"face width {face_u} leaves no face or no back in a {width} px texture")
-
-    face = source.crop((0, 0, face_px, height)).resize((face_px * UPSCALE, height * UPSCALE), Image.LANCZOS)
-    back = source.crop((face_px, 0, width, height)).resize(((width - face_px) * UPSCALE, height * UPSCALE), Image.LANCZOS)
+    face, back, face_px = _upscale(source, face_u)
     fw, fh = face.size
 
     size = round(fh * LABEL_SIZE)
@@ -84,8 +78,28 @@ def index_tile(source: Image.Image, name: str, face_u: float) -> Image.Image:
     draw.text(origin, LABELS[name], font=font, fill=colour, anchor="lt",
               stroke_width=weight + max(1, round(size * OUTLINE)), stroke_fill=_border_colour(source, face_px))
     draw.text(origin, LABELS[name], font=font, fill=colour, anchor="lt", stroke_width=weight, stroke_fill=colour)
+    return _join(face, back)
 
-    result = Image.new("RGBA", (width * UPSCALE, height * UPSCALE))
+
+def plain_tile(source: Image.Image, face_u: float) -> Image.Image:
+    """Returns `source` upscaled like the indexed tiles but with no index: the face of a tile nobody has seen yet."""
+    face, back, _ = _upscale(source.convert("RGBA"), face_u)
+    return _join(face, back)
+
+
+# The face (the left face_u of the texture) and the back are upscaled separately, so the orange never bleeds into it.
+def _upscale(source: Image.Image, face_u: float) -> tuple[Image.Image, Image.Image, int]:
+    width, height = source.size
+    face_px = round(face_u * width)
+    if not 0 < face_px < width:
+        raise ValueError(f"face width {face_u} leaves no face or no back in a {width} px texture")
+    face = source.crop((0, 0, face_px, height)).resize((face_px * UPSCALE, height * UPSCALE), Image.LANCZOS)
+    back = source.crop((face_px, 0, width, height)).resize(((width - face_px) * UPSCALE, height * UPSCALE), Image.LANCZOS)
+    return face, back, face_px
+
+
+def _join(face: Image.Image, back: Image.Image) -> Image.Image:
+    result = Image.new("RGBA", (face.width + back.width, face.height))
     result.paste(face, (0, 0))
-    result.paste(back, (fw, 0))
+    result.paste(back, (face.width, 0))
     return result

@@ -97,3 +97,13 @@ def test_face_u_extent_rejects_a_mesh_without_a_face():
     except ValueError:
         return
     raise AssertionError("expected ValueError")
+
+
+def test_plain_tile_is_upscaled_like_the_indexed_ones():
+    assert tile_index.plain_tile(_source(), FACE_U).size == (WIDTH * K, HEIGHT * K)
+
+
+def test_plain_tile_has_no_index():
+    # Hidden tiles use it: the white dragon's face without its "Wh", so an unknown tile doesn't read as a dragon.
+    plain = tile_index.plain_tile(_source(), FACE_U)
+    assert not any(sum(p[:3]) < 3 * 128 for _, _, p in _face_pixels(plain))
