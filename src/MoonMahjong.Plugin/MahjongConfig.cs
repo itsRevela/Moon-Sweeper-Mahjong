@@ -13,6 +13,9 @@ internal sealed class MahjongConfig
             new ConfigDescription("Seated camera height above the table top, in table units.", new AcceptableValueRange<float>(0.2f, 1.5f)));
         ViewDistance = file.Bind("Table", "ViewDistance", 0.62f,
             new ConfigDescription("Seated camera distance from the table centre toward the seat.", new AcceptableValueRange<float>(0.2f, 1.5f)));
+        Volume = file.Bind("Audio", "Volume", 1.0f,
+            new ConfigDescription("Volume of the mahjong table's sounds (calls, tiles, Reset table), on top of the game's own volume " +
+                "settings. Also in the game's Settings > Audio, as Mahjong.", new AcceptableValueRange<float>(0f, 1f)));
         RoundCount = file.Bind("Game", "RoundCount", 8,
             new ConfigDescription("Rounds in a game: 8 is a hanchan (East and South), 4 is east-only.", new AcceptableValueRange<int>(1, 16)));
         DecisionTimeLimit = file.Bind("Game", "DecisionTimeLimit", 0,
@@ -33,6 +36,7 @@ internal sealed class MahjongConfig
     public ConfigEntry<float> TileScale { get; }
     public ConfigEntry<float> ViewHeight { get; }
     public ConfigEntry<float> ViewDistance { get; }
+    public ConfigEntry<float> Volume { get; }
     public ConfigEntry<int> RoundCount { get; }
     public ConfigEntry<int> DecisionTimeLimit { get; }
 

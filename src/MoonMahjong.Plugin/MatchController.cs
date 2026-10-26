@@ -28,8 +28,8 @@ internal sealed class MatchController : IDisposable
     private readonly ClientGame client;
     private readonly Transform surface;
     private readonly MahjongAssets assets;
-    // The spoken calls' own source (see PlaySound).
-    private readonly AudioSource voice;
+    // The table's own source for all its sounds (see PlaySound).
+    private readonly AudioSource tableAudio;
     private Vector3 observerDirection;
     private AnimationTimings timings = AnimationTimings.Default(ServerSettings.Default);
     private readonly float handAreaRise;
@@ -53,10 +53,7 @@ internal sealed class MatchController : IDisposable
     {
         this.handAreaRise = handAreaRise;
         this.surface = surface;
-        voice = surface.gameObject.AddComponent<AudioSource>();
-        MoonOneShot.Configure(voice, SoundVolume, HearingDistance);
-        voice.playOnAwake = false;
-        voice.loop = false;
+        tableAudio = MahjongAudio.Source(surface.gameObject, HearingDistance);
         this.assets = assets;
         this.game = game;
         this.observerDirection = observerDirection;
@@ -233,8 +230,8 @@ internal sealed class MatchController : IDisposable
 
     public void Dispose()
     {
-        if (voice != null)
-            UnityEngine.Object.Destroy(voice);
+        if (tableAudio != null)
+            UnityEngine.Object.Destroy(tableAudio);
         hologram?.Dispose();
         view?.Dispose();
         view = null;
@@ -299,16 +296,15 @@ internal sealed class MatchController : IDisposable
         };
     }
 
-    // Tile noises go through the game's shared one-shot pool. When the base is busy that pool is full and takes over a
-    // source that is still playing, which cut "Riichi" off mid-word and could silence a ron (requested), so the spoken
-    // calls play on the table's own source instead (one-shots there overlap rather than cut each other off).
+    // Every table sound plays on the table's own source (MahjongAudio): the game's shared one-shot pool, when the base
+    // is busy, takes over a source still playing, which cut "Riichi" off mid-word and could silence a ron, and its sounds
+    // follow the Sound effects slider, which must leave the table alone (both requested). One-shots on one source overlap
+    // rather than cut each other off. Settings > Audio > Mahjong sets the level; at 0 nothing plays.
     private void PlaySound(TableSound sound)
     {
-        var clip = assets.Sound(sound);
-        if (!sound.IsSpoken())
-            MoonOneShot.Play(clip, new Il2CppSystem.Nullable<Vector3>(surface.position), SoundVolume, 1f, HearingDistance);
-        else if (MoonOneShot.Hears(surface.position, HearingDistance))
-            voice.PlayOneShot(clip);
+        var volume = MahjongAudio.Volume;
+        if (volume > 0f && MoonOneShot.Hears(surface.position, HearingDistance))
+            tableAudio.PlayOneShot(assets.Sound(sound), SoundVolume * volume);
     }
 
     private void ShowRoundEnd(RoundEndCall call)

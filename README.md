@@ -43,6 +43,7 @@ table, and a chair they sit in gets a computer player.
   seat is played for them after 3 minutes so the others can finish.
 
 Settings live in `BepInEx\config\itsrevela.moonsweepers.mahjong.cfg` in the game folder (created on the first run).
+The table's sound volume is also in the game's Settings > Audio, as **Mahjong**.
 
 ## How it works
 
