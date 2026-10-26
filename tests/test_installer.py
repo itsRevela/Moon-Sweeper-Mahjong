@@ -177,3 +177,32 @@ def test_a_developer_install_from_loader_py_can_be_uninstalled(env):
     result = run("-Action", "Uninstall", "-GamePath", str(env["game"]), "-Yes", "-Settings", "Remove")
     assert result.returncode == 0, result.stdout + result.stderr
     assert sorted(p.name for p in env["game"].iterdir()) == ["MoonSweepers.exe"]
+
+
+def keep_settings_and_uninstall(env):
+    install(env)
+    (env["game"] / SETTINGS).parent.mkdir(parents=True, exist_ok=True)
+    (env["game"] / SETTINGS).write_text("[Game]\nRoundCount = 4\n", encoding="utf-8")
+    run("-Action", "Uninstall", "-GamePath", str(env["game"]), "-Yes", "-Settings", "Keep")
+
+
+def test_reinstall_after_keeping_settings_uses_them(env):
+    keep_settings_and_uninstall(env)
+
+    install(env)
+    assert (env["game"] / SETTINGS).read_text(encoding="utf-8") == "[Game]\nRoundCount = 4\n"
+
+
+def test_reinstall_after_keeping_settings_is_not_mistaken_for_a_foreign_loader(env):
+    keep_settings_and_uninstall(env)
+
+    result = run("-Action", "Install", "-SteamPath", str(env["steam"]), "-Payload", str(env["payload"]))
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_uninstall_after_a_reinstall_over_kept_settings_leaves_no_bepinex_folder(env):
+    keep_settings_and_uninstall(env)
+    install(env)
+
+    run("-Action", "Uninstall", "-GamePath", str(env["game"]), "-Yes", "-Settings", "Remove")
+    assert not (env["game"] / "BepInEx").exists()

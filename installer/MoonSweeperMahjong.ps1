@@ -152,8 +152,16 @@ function Assert-Writable([string]$game) {
 
 # --- Install ----------------------------------------------------------------------------------------------------
 
+# A BepInEx folder holding nothing but our settings (kept by an earlier uninstall) is ours, not another mod loader.
+function Test-OnlyOurSettings([string]$game) {
+    $files = @(Get-ChildItem -LiteralPath (Join-Game $game 'BepInEx') -Recurse -File -Force)
+    return $files.Count -eq 0 -or ($files.Count -eq 1 -and $files[0].FullName -eq (Join-Game $game $SettingsFile))
+}
+
 function Get-ForeignLoader([string]$game) {
-    return @($LoaderRoots | Where-Object { Test-Path -LiteralPath (Join-Game $game $_) })
+    return @($LoaderRoots | Where-Object {
+            (Test-Path -LiteralPath (Join-Game $game $_)) -and -not ($_ -eq 'BepInEx' -and (Test-OnlyOurSettings $game))
+        })
 }
 
 function Install-Mod([string]$game) {
@@ -262,7 +270,8 @@ function Uninstall-Mod([string]$game) {
         if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
     }
     if (-not $keep -and (Test-Path -LiteralPath $settingsPath)) { Remove-Item -LiteralPath $settingsPath -Force }
-    $dirs = @($manifest.dirs) + @('BepInEx/config', 'BepInEx/plugins')
+    # BepInEx itself may predate the install (settings kept from an earlier one); it goes too once it is empty.
+    $dirs = @($manifest.dirs) + @('BepInEx/config', 'BepInEx/plugins', 'BepInEx')
     Remove-EmptyDirs $game ($dirs | Where-Object { $_ })
     Remove-Item -LiteralPath (Join-Path $game $ManifestName) -Force
 
