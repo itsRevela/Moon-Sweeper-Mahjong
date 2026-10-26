@@ -170,6 +170,91 @@ public sealed class ClientRiichiTests
         Assert.Equal(new[] { false, true }, riichiAtTurn);
     }
 
+    // A fixed-wall round where the other seats throw what they draw and pass on every call; the dealer is the client.
+    private sealed class ScriptedTable
+    {
+        private readonly FixedWallRound round;
+        private bool timer, continueEnabled;
+
+        public ScriptedTable(string dealerHand, string dealerDraws)
+        {
+            Client = new ClientRoundState(new RoundStartInfo(WallBuilder.WallIndex), ServerSettings.Default, 0, Wind.East, WallBuilder.Dealer,
+                new[] { true, true, true, true });
+            Client.SetTimerState += v => timer = v;
+            Client.SetContinueState += v => continueEnabled = v;
+            var wall = WallBuilder.Build(new[] { dealerHand, null, null, null }, new[] { dealerDraws, "567z", "567z", "123z" });
+            round = new FixedWallRound(wall, new IServerRoundPlayer[] { new Seat(Client), new Seat(), new Seat(), new Seat() });
+            var server = round.Scripted;
+            Client.DoAction += action => server.BufferAction(new ClientServerAction(0, action));
+            var drawn = new Tile?[4];
+            server.GameDrawTile += (seat, tile, _) => drawn[seat] = tile;
+            server.GameGetTurnDecision += seat =>
+            {
+                if (seat != 0)
+                    server.BufferAction(new ClientServerAction(seat, new TileDiscardClientAction(drawn[seat]!.ID)));
+            };
+            server.GameGetCallDecision += seat =>
+            {
+                if (seat != 0)
+                    server.BufferAction(new ClientServerAction(seat, new NoCallClientAction()));
+            };
+            round.Start(0);
+        }
+
+        public ClientRoundState Client { get; }
+
+        // Runs until it is the dealer's turn again (passing on any call offered on the way).
+        public void NextTurn()
+        {
+            for (var i = 0; i < 40; i++)
+            {
+                round.Scripted.Pump();
+                if (timer && continueEnabled)
+                    Client.ClientContinue();
+                else if (timer)
+                    return;
+            }
+            throw new InvalidOperationException("the dealer's turn never came");
+        }
+    }
+
+    // Ready on 5m with East; riichi throws East (the only tile that keeps it ready). Next draw: 9p (no win) or 5m (tsumo).
+    private const string ReadyOnFiveMan = "234p456p678s22s46m";
+
+    private static ScriptedTable AfterRiichi(string secondDraw)
+    {
+        var table = new ScriptedTable(ReadyOnFiveMan, "1z" + secondDraw);
+        table.NextTurn();
+        table.Client.ClientRiichi(false);
+        table.NextTurn();
+        return table;
+    }
+
+    [Fact]
+    public void InRiichi_TheDrawnTileIsDiscardedForThePlayer()
+    {
+        var table = AfterRiichi("9p");
+
+        Assert.Equal(TileType.Pin9, table.Client.RiichiAutoDiscard?.TileType);
+    }
+
+    [Fact]
+    public void InRiichi_ADrawThatWinsWaitsForThePlayer()
+    {
+        var table = AfterRiichi("5m");
+
+        Assert.Null(table.Client.RiichiAutoDiscard);
+    }
+
+    [Fact]
+    public void BeforeRiichi_NothingIsDiscardedForThePlayer()
+    {
+        var table = new ScriptedTable(ReadyOnFiveMan, "1z9p");
+        table.NextTurn();
+
+        Assert.Null(table.Client.RiichiAutoDiscard);
+    }
+
     [Fact]
     public void RiichiIsNotOffered_WhenNoDiscardMakesTheHandReady()
     {

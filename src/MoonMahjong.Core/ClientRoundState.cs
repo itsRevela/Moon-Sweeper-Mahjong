@@ -157,6 +157,7 @@ public sealed class ClientRoundState
         selectionGroups.Clear();
 
         var discardTiles = state.CurrentPlayer.GetDiscardTiles();
+        riichiAutoDiscard = state.Self.InRiichi && !canTsumo && !canKan && discardTiles.Count == 1 ? discardTiles[0] : null;
         foreach (var tile in discardTiles)
         {
             var t = new List<Tile> { tile };
@@ -390,6 +391,11 @@ public sealed class ClientRoundState
     // Riichi was pressed and more than one discard keeps the hand ready: the next tile chosen declares it (a mod
     // addition, so the HUD can show it; pressing Riichi again cancels).
     public bool ChoosingRiichiDiscard => actionState is State.SelectRiichi or State.SelectOpenRiichi;
+
+    // In riichi the discard is always the drawn tile: this turn's, for the HUD to throw by itself, unless the player
+    // could tsumo or kan instead (a mod addition, as Mahjong Soul does).
+    public Tile? RiichiAutoDiscard => actionState == State.Turn ? riichiAutoDiscard : null;
+    private Tile? riichiAutoDiscard;
 
     public void ClientRiichi(bool open)
     {

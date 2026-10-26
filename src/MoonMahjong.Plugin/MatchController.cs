@@ -16,6 +16,8 @@ namespace MoonMahjong.Plugin;
 internal sealed class MatchController : IDisposable
 {
     private const float PickDistance = 4f;
+    // In riichi, the drawn tile is thrown by itself after this long, so the player sees what came (requested).
+    private const float RiichiDiscardDelay = 0.6f;
     private const float SoundVolume = 0.8f;
     private const float HearingDistance = 12f; // metres: MoonOneShot skips sounds farther than this from the camera
 
@@ -92,12 +94,15 @@ internal sealed class MatchController : IDisposable
             return;
         if (AutoPlayDelay is { } delay && timer && time - timerStarted >= delay)
             AutoPlay();
+        if (round?.RiichiAutoDiscard is { } drawn && timer && time - timerStarted >= RiichiDiscardDelay)
+            round.ClientTileSelected(drawn);
 
         // Choosing a riichi discard: the tiles that keep the hand ready (the only ones that can be picked) stand raised.
         HashSet<int>? lifted = round is { ChoosingRiichiDiscard: true } && groups != null
             ? groups.SelectMany(g => g.SelectionTiles).Select(t => t.ID).ToHashSet()
             : null;
         var hovered = pointer.HasValue ? view.TileUnder(pointer.Value, PickDistance) : null;
+        hoveredTile = hovered;
         var groupIndex = layout.GetTileSelectionGroup(hovered, time);
         if (groupIndex is { } index && groups != null && index < groups.Count)
         {
@@ -107,7 +112,7 @@ internal sealed class MatchController : IDisposable
             if (click)
                 round!.ClientTileSelected(group.SelectionTiles.FirstOrDefault(t => t.ID == hovered) ?? group.SelectionTiles[0]);
         }
-        view.Apply(time, lifted);
+        view.Apply(time, lifted, CallableDiscard(), CopiesOnBoard(hovered));
         foreach (var cue in layout.TakeSounds(time))
             MoonOneShot.Play(assets.Sound(cue.Sound), new Il2CppSystem.Nullable<Vector3>(surface.position), SoundVolume, 1f, HearingDistance);
 
@@ -120,6 +125,10 @@ internal sealed class MatchController : IDisposable
 
     private bool described;
     private float roundCreatedAt;
+    private int? hoveredTile;
+    private int? lastDiscard;
+    // The waits popup's last answer (the hand and table don't change while a riichi discard is being chosen).
+    private (int Tile, IReadOnlyList<WaitTile> Waits)? riichiWaits;
 
     // The observer seat's chair moved (a lone player sat down elsewhere): turn the table toward it.
     public void Face(Vector3 direction)
@@ -177,6 +186,9 @@ internal sealed class MatchController : IDisposable
         state.Kan = kan;
         state.Riichi = riichi;
         state.ChoosingRiichi = round?.ChoosingRiichiDiscard ?? false;
+        if (!state.ChoosingRiichi)
+            riichiWaits = null;
+        state.Waits = state.ChoosingRiichi ? HoveredRiichiWaits() : null;
         state.Tsumo = tsumo;
         state.Ron = ron;
         state.Continue = continueEnabled;
@@ -209,6 +221,7 @@ internal sealed class MatchController : IDisposable
         lastSheet = null;
         playedRound = (game.RoundWind, game.CurrentRound, game.Renchan);
         chii = pon = kan = riichi = tsumo = ron = continueEnabled = voidHand = furiten = timer = false;
+        lastDiscard = null;
         groups = null;
 
         described = false;
@@ -222,6 +235,7 @@ internal sealed class MatchController : IDisposable
         r.GameTileDraw += p => created.TileDraw(p, now);
         r.GameDeadTileDraw += p => created.DeadTileDraw(p, now);
         r.GameTileDiscard += (p, id) => created.TileDiscard(p, id, now);
+        r.GameTileDiscard += (_, id) => lastDiscard = id;
         r.GameFlipDora += () => created.FlipDora(now);
         r.GameRiichi += (p, open) => created.Riichi(p, open, now);
         r.GameLateKan += (p, id) => created.LateKan(p, id, now);
@@ -256,6 +270,35 @@ internal sealed class MatchController : IDisposable
             }
             timer = v;
         };
+    }
+
+    // The discard the player is being asked about, while they may chii, pon or kan it (requested: it stands out).
+    private ISet<int>? CallableDiscard() =>
+        continueEnabled && (chii || pon || kan) && lastDiscard is { } id ? new HashSet<int> { id } : null;
+
+    // The board's copies of the hand tile under the pointer (requested: they are greyed, as in Mahjong Soul).
+    private ISet<int>? CopiesOnBoard(int? hovered)
+    {
+        if (hovered is not { } id || round == null || client.PlayerIndex < 0)
+            return null;
+        var tile = round.RoundState.Self.Hand.FirstOrDefault(t => t.ID == id);
+        return tile == null ? null : BoardTiles.Matching(round.RoundState, tile.TileType);
+    }
+
+    // What throwing the hovered riichi candidate would wait on (none when the pointer is not on a candidate).
+    private IReadOnlyList<WaitTile>? HoveredRiichiWaits()
+    {
+        if (hoveredTile is not { } id || groups == null || round == null)
+            return null;
+        var tile = groups.SelectMany(g => g.SelectionTiles).FirstOrDefault(t => t.ID == id);
+        if (tile == null)
+            return null;
+        if (riichiWaits is not { } cached || cached.Tile != id)
+        {
+            var self = round.RoundState.Self;
+            riichiWaits = (id, Waits.After(self.Hand, self.Calls, tile, Waits.Visible(round.RoundState)));
+        }
+        return riichiWaits.Value.Waits;
     }
 
     // One line per own turn, so a report like "riichi wasn't offered" can be checked against the hand.

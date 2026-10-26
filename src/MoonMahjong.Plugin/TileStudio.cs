@@ -7,7 +7,8 @@ using UnityEngine;
 namespace MoonMahjong.Plugin;
 
 // Films tiles in 3D for the screen (requested: the round result shows the winning hand as real tiles, not pictures).
-// The studio sits at the world's origin, the moon's empty centre far from everything else, with its own light. An
+// The studio sits in the moon's empty centre (the origin, or a spot near it), far from everything else, with its own
+// light; two studios stand apart so neither films the other's tiles. An
 // orthographic camera looks slightly down on the tiles standing in rows, so their tops show, and renders into a texture
 // the result plate shows. It runs only while a result is up.
 internal sealed class TileStudio : IDisposable
@@ -29,11 +30,11 @@ internal sealed class TileStudio : IDisposable
     private readonly Transform light;
     private RenderTexture? texture;
 
-    public TileStudio(MahjongAssets assets, Color tray)
+    public TileStudio(MahjongAssets assets, Color tray, Vector3 position = default)
     {
         this.assets = assets;
         root = new GameObject("Mahjong tile studio").transform;
-        root.position = Vector3.zero;
+        root.position = position;
         tilesRoot = new GameObject("Tiles").transform;
         tilesRoot.SetParent(root, false);
 

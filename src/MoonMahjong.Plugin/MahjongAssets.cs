@@ -24,6 +24,8 @@ internal sealed class MahjongAssets
 
     private readonly Dictionary<string, Material> tileMaterials = new();
     private readonly Dictionary<string, Material> handTileMaterials = new();
+    private readonly Dictionary<string, Material> highlightedTileMaterials = new();
+    private readonly Dictionary<string, Material> dimmedTileMaterials = new();
     private readonly Dictionary<string, Texture2D> tileTextures = new();
     private readonly Dictionary<TableSound, AudioClip> sounds = new();
     private readonly Material template;
@@ -40,6 +42,8 @@ internal sealed class MahjongAssets
             tileTextures[name] = texture;
             tileMaterials[name] = CreateMaterial("MoonMahjong tile " + name, texture, TileSmoothness);
             handTileMaterials[name] = CreateMaterial("MoonMahjong hand tile " + name, texture, TileSmoothness, HandTint);
+            highlightedTileMaterials[name] = CreateMaterial("MoonMahjong highlighted tile " + name, texture, TileSmoothness, HighlightTint);
+            dimmedTileMaterials[name] = CreateMaterial("MoonMahjong dimmed tile " + name, texture, TileSmoothness, DimTint);
         }
         HiddenTileMaterial = CreateMaterial("MoonMahjong hidden tile", LoadTexture(Path.Combine(directory, "tiles", "blank.png")), TileSmoothness);
         LoadSounds(directory);
@@ -64,6 +68,9 @@ internal sealed class MahjongAssets
     // The local player's own hand is seen face-on, so its gloss reflects little of the bright lounge, and it read
     // duller than the tiles lying on the table, seen at a glancing angle (measured ivory: 153 against 195).
     private const float HandTint = 1.25f;
+    // A discard the player may call glows warm (requested); copies of a hovered hand tile are greyed (requested).
+    private static readonly Color HighlightTint = new(1.3f, 1.12f, 0.6f, 1f);
+    private static readonly Color DimTint = new(0.5f, 0.5f, 0.53f, 1f);
 
     // URP Lit smoothness: tiles are polished resin, the rail varnished wood, the felt cloth, the console satin.
     private const float TileSmoothness = 0.55f;
@@ -132,11 +139,18 @@ internal sealed class MahjongAssets
         return new MahjongAssets(directory, template, scale);
     }
 
-    public Material MaterialFor(TileType type, bool redFive, bool ownHand = false)
+    public Material MaterialFor(TileType type, bool redFive, TileLook look = TileLook.Table)
     {
         if (type == TileType.Blank)
             return HiddenTileMaterial;
-        return (ownHand ? handTileMaterials : tileMaterials)[TextureName(type, redFive)];
+        var materials = look switch
+        {
+            TileLook.OwnHand => handTileMaterials,
+            TileLook.Highlighted => highlightedTileMaterials,
+            TileLook.Dimmed => dimmedTileMaterials,
+            _ => tileMaterials,
+        };
+        return materials[TextureName(type, redFive)];
     }
 
     // NaoMahjong names: 1-9 + m/p/s, 0 = red five; honors 1z-4z = East..North, 5z-7z = white, green, red dragon.
@@ -181,10 +195,13 @@ internal sealed class MahjongAssets
         return material;
     }
 
-    private Material CreateMaterial(string name, Texture2D texture, float smoothness, float tint = 1f)
+    private Material CreateMaterial(string name, Texture2D texture, float smoothness, float tint = 1f) =>
+        CreateMaterial(name, texture, smoothness, new Color(tint, tint, tint, 1f));
+
+    // The shader multiplies the texture by `color` (components above 1 brighten).
+    private Material CreateMaterial(string name, Texture2D texture, float smoothness, Color color)
     {
         var material = new Material(template) { name = name, hideFlags = KeepLoaded };
-        var color = new Color(tint, tint, tint, 1f);
         if (material.HasProperty("_Smoothness"))
             material.SetFloat("_Smoothness", smoothness);
         if (material.HasProperty("_Metallic"))
@@ -264,4 +281,14 @@ internal sealed class MahjongAssets
         public float[][] uvs { get; set; } = Array.Empty<float[]>();
         public int[] triangles { get; set; } = Array.Empty<int>();
     }
+}
+
+// How a tile is drawn: lying on the table, in the local player's hand (brighter, see HandTint), highlighted (a discard
+// the player may call) or dimmed (a copy of the hovered hand tile).
+internal enum TileLook
+{
+    Table,
+    OwnHand,
+    Highlighted,
+    Dimmed,
 }

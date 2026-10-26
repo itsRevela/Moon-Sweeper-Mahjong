@@ -72,8 +72,9 @@ internal sealed class TableView : IDisposable
         root.localRotation = Quaternion.LookRotation(-observerDirection, Vector3.up);
     }
 
-    // Place every tile and stick for `time`; tiles in `lifted` (a hovered selection group) rise a little.
-    public void Apply(float time, ISet<int>? lifted)
+    // Place every tile and stick for `time`; tiles in `lifted` (a hovered selection group) rise a little, tiles in
+    // `highlighted` glow and tiles in `dimmed` are greyed.
+    public void Apply(float time, ISet<int>? lifted, ISet<int>? highlighted = null, ISet<int>? dimmed = null)
     {
         for (var id = 0; id < TileCount; id++)
         {
@@ -85,7 +86,10 @@ internal sealed class TableView : IDisposable
             tiles[id].localRotation = ToUnity(pose.Rotation);
             // The local player's own hand is the only set of tiles whose face leans toward -Z (the observer).
             var inOwnHand = (tiles[id].localRotation * Vector3.forward).z < -0.1f;
-            var material = assets.MaterialFor(pose.Type, pose.RedFive, inOwnHand);
+            var look = highlighted != null && highlighted.Contains(id) ? TileLook.Highlighted
+                : dimmed != null && dimmed.Contains(id) ? TileLook.Dimmed
+                : inOwnHand ? TileLook.OwnHand : TileLook.Table;
+            var material = assets.MaterialFor(pose.Type, pose.RedFive, look);
             if (material != shownMaterial[id])
             {
                 renderers[id].sharedMaterial = material;

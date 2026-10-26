@@ -34,6 +34,7 @@ internal sealed class MahjongHud : IDisposable
     private readonly Button eastSouth;
     private readonly Button dealButton;
     private readonly ResultPlate resultPlate;
+    private readonly WaitsPopup waitsPopup;
     private readonly TMP_Text statusText;
     private readonly List<(Button Button, Func<HudState, bool> Visible)> actionButtons = new();
     private HudLobby? shownLobby;
@@ -67,6 +68,7 @@ internal sealed class MahjongHud : IDisposable
             ButtonHeight, (Il2CppSystem.Action)(Action)(() => Callbacks.Deal?.Invoke()), true);
 
         resultPlate = new ResultPlate(kit, stage, assets, () => Callbacks.Acknowledge?.Invoke());
+        waitsPopup = new WaitsPopup(kit, stage, assets);
 
         statusText = kit.Text(stage, "", 0f, ButtonRowY - 52f, 1920f, 40f, 24f, MoonWorkshopKit.Orange, null, TextAlignmentOptions.Top);
 
@@ -90,6 +92,7 @@ internal sealed class MahjongHud : IDisposable
         if (state == null && lobby != null)
             ShowLobby(lobby);
         resultPlate.Show(state?.Result, state?.WinningHands ?? Array.Empty<IReadOnlyList<PlacedHandTile>>(), state?.GameOver ?? false);
+        waitsPopup.Show(playing ? state!.Waits : null, ButtonRowY - 64f); // above the status line
         if (state == null)
         {
             statusText.text = "";
@@ -122,6 +125,7 @@ internal sealed class MahjongHud : IDisposable
     public void Dispose()
     {
         resultPlate.Dispose();
+        waitsPopup.Dispose();
         if (stage != null)
             UnityEngine.Object.Destroy(stage.gameObject);
     }
@@ -170,6 +174,7 @@ internal sealed class HudState
     public ConsoleReadout? Console; // drawn on the table by CenterDisplay, not on the screen
     public bool Chii, Pon, Kan, Riichi, Tsumo, Ron, Continue, VoidHand;
     public bool ChoosingRiichi; // Riichi pressed: the next discard declares it (the button now cancels)
+    public IReadOnlyList<WaitTile>? Waits; // choosing a riichi discard: what the hovered tile's discard would wait on
     public string Status = "";
     public ResultSheet? Result; // between rounds
     public IReadOnlyList<IReadOnlyList<PlacedHandTile>> WinningHands = Array.Empty<IReadOnlyList<PlacedHandTile>>();
