@@ -7,8 +7,8 @@ using UnityEngine;
 namespace MoonMahjong.Plugin;
 
 // The round's call as a hologram over the table (requested): RON or TSUMO above each winner's side, DRAW at the
-// centre, in glowing cyan world-space text that pops up, rises, hovers, flickers, glitches now and then, always faces
-// the viewer, and lights the felt below. Lives in the table view's space (observer on -Z, one unit a tile width).
+// centre, in steady cyan world-space text (requested: no blinking) that pops up, rises, hovers, always faces the
+// viewer, and lights the felt below. Lives in the table view's space (observer on -Z, one unit a tile width).
 internal sealed class RoundEndHologram : IDisposable
 {
     private const float FromCentre = 5.5f; // tile widths toward the winner's hand
@@ -20,19 +20,19 @@ internal sealed class RoundEndHologram : IDisposable
     private const float DetailSize = 13f;
     private const float DetailBelow = 2.8f; // tile widths under the title
     private static readonly Color Cyan = new(0.55f, 1f, 1f, 1f);
-    private static readonly Color Halo = new(0f, 0.07f, 0.14f, 0.85f);
+    // A thin dark rim keeps the letters readable over the blue felt and the white lounge alike. (An underlay halo was
+    // clipped into dark boxes at each letter's quad.)
+    private const float OutlineWidth = 0.2f;
+    private static readonly Color32 Rim = new(0, 22, 40, 255);
 
     private readonly List<(Transform Node, TextMeshPro Title, TextMeshPro? Detail, Light Glow, Vector3 Home)> holograms = new();
-    private readonly System.Random random = new();
     private readonly float started;
     private readonly float unit;
-    private float glitchUntil, nextGlitch;
 
     public RoundEndHologram(Transform root, float unit, RoundEndCall call, int observerSeat, TMP_FontAsset font, float time)
     {
         started = time;
         this.unit = unit;
-        nextGlitch = time + 0.8f;
         var spots = call.Seats.Count == 0 ? new[] { Vector3.zero } : SeatSpots(call.Seats, observerSeat);
         foreach (var spot in spots)
         {
@@ -59,28 +59,16 @@ internal sealed class RoundEndHologram : IDisposable
         var t = time - started;
         var pop = t < PopSeconds ? Mathf.SmoothStep(0f, 1.15f, t / PopSeconds) : Mathf.Lerp(1.15f, 1f, Mathf.Clamp01((t - PopSeconds) / 0.15f));
         var rise = Mathf.Lerp(RiseFrom, 0f, 1f - Mathf.Pow(1f - Mathf.Clamp01(t / RiseSeconds), 3f));
-        if (time >= nextGlitch)
-        {
-            glitchUntil = time + 0.07f + (float)random.NextDouble() * 0.06f;
-            nextGlitch = time + 0.7f + (float)random.NextDouble() * 1.2f;
-        }
-        var glitching = time < glitchUntil;
-        var flicker = glitching ? 0.45f : 0.86f + 0.14f * Mathf.Sin(t * 23f);
 
         foreach (var (node, title, detail, glow, home) in holograms)
         {
             var bob = Mathf.Sin(t * 2f) * 0.08f;
-            var jitter = glitching ? ((float)random.NextDouble() - 0.5f) * 0.3f : 0f;
-            node.localPosition = home + new Vector3(jitter, -rise + bob, 0f) * unit;
+            node.localPosition = home + new Vector3(0f, -rise + bob, 0f) * unit;
             title.transform.localScale = Vector3.one * pop; // the pop scales the text, the node keeps the tile unit
             if (viewer != null)
                 node.rotation = Quaternion.LookRotation(node.position - viewer.position, node.parent.up);
-            title.alpha = flicker;
             if (detail != null)
-            {
                 detail.transform.localScale = Vector3.one * pop;
-                detail.alpha = flicker;
-            }
             glow.intensity = (1.1f + 0.4f * Mathf.Sin(t * 6f)) * pop;
         }
     }
@@ -120,18 +108,8 @@ internal sealed class RoundEndHologram : IDisposable
         text.textWrappingMode = TextWrappingModes.NoWrap;
         text.rectTransform.sizeDelta = new Vector2(60f, 8f);
         text.color = Cyan;
-        text.outlineWidth = 0.08f;
-        text.outlineColor = new Color32(220, 255, 255, 255);
-        // A dark halo behind the letters keeps them readable over the blue felt and the white lounge alike, where the
-        // font's shader has one.
-        var material = text.fontMaterial;
-        if (material.HasProperty("_UnderlayColor"))
-        {
-            material.EnableKeyword("UNDERLAY_ON");
-            material.SetColor("_UnderlayColor", Halo);
-            material.SetFloat("_UnderlaySoftness", 0.45f);
-            material.SetFloat("_UnderlayDilate", 0.6f);
-        }
+        text.outlineWidth = OutlineWidth;
+        text.outlineColor = Rim;
         return text;
     }
 }
