@@ -7,6 +7,14 @@ using MoonMahjong.Table.Presentation;
 
 namespace MoonMahjong.Net;
 
+/// <summary>What someone at the table just did with Reset table (the table's sounds follow these).</summary>
+public enum ResetSignal
+{
+    HoldStarted,
+    HoldStopped,
+    Reset,
+}
+
 /// <summary>
 /// One mahjong table as this client takes part in it (docs/crew-play.md): the lobby before a deal (the first to sit
 /// hosts; two claims at once go to the lower Steam ID), the deal, and then either hosting the game (HostedGame) or
@@ -29,6 +37,7 @@ public sealed class TableSession
     private readonly TableOptions options;
     private readonly Random random;
     private readonly HashSet<ulong> knownPeers = new();
+    private readonly HashSet<ulong> resetHolders = new();
     private HostedGame? hosted;
     private float lastLobbySent = float.NegativeInfinity;
     private float lastLobbyHeard;
@@ -65,6 +74,18 @@ public sealed class TableSession
     /// <summary>Game messages this session threw away: forged, for another game, or malformed.</summary>
     public int Rejected { get; private set; }
 
+    /// <summary>
+    /// Reset table is offered (requested): the running game is stuck (paused for someone, its host gone, or this copy
+    /// broken) and the local player sits at the table, in any chair.
+    /// </summary>
+    public bool CanReset => Game is { Over: false } game && LocalChair >= 0 && (game.Paused || game.HostMissingFor > 0 || game.Broken);
+
+    /// <summary>Someone at the table (the local player too) started or stopped holding Reset table, or held it to the end.</summary>
+    public event Action<ulong, ResetSignal>? ResetSignalled;
+
+    /// <summary>Who at the table is holding Reset table right now (everyone hears it charge).</summary>
+    public IReadOnlyCollection<ulong> ResetHolders => GameRunning ? resetHolders.Where(IsSeated).ToList() : Array.Empty<ulong>();
+
     public void ChooseLength(GameLength length)
     {
         if (!IsLobbyHost)
@@ -99,6 +120,7 @@ public sealed class TableSession
         hosted = host;
         hostGoneSince = null;
         LobbyHost = 0;
+        resetHolders.Clear();
     }
 
     /// <summary>
@@ -111,16 +133,51 @@ public sealed class TableSession
         if (Game is not { Over: false } game)
             return;
         if (hosted != null)
-        {
-            game.Ended = EndReason.Cancelled;
-            Broadcast(new EndMessage(game.Id, EndReason.Cancelled));
-            hosted = null;
-        }
+            EndForEveryone(game);
         else
         {
             game.Broken = true;
             Send(game.Host, new AskMessage(game.Id));
         }
+    }
+
+    /// <summary>The local player starts or stops holding Reset table (only while it is offered, or to let go).</summary>
+    public void HoldReset(bool holding)
+    {
+        if (Game is not { Over: false } game || holding && !CanReset)
+            return;
+        if (holding ? resetHolders.Add(Link.LocalId) : resetHolders.Remove(Link.LocalId))
+            ResetSignalled?.Invoke(Link.LocalId, holding ? ResetSignal.HoldStarted : ResetSignal.HoldStopped);
+        Broadcast(new ResetHoldMessage(game.Id, holding));
+    }
+
+    /// <summary>
+    /// The local player held Reset table to the end: the stuck game ends and the table opens again. A host ends it for
+    /// everyone; anyone else asks the host to (everyone checks the request came from the table), or, with the host gone,
+    /// ends their own copy at once and tells the others to do the same.
+    /// </summary>
+    public void Reset()
+    {
+        if (!CanReset)
+            throw new InvalidOperationException("Only a stuck game can be reset, by someone sitting at its table.");
+        var game = Game!;
+        resetHolders.Clear();
+        ResetSignalled?.Invoke(Link.LocalId, ResetSignal.Reset);
+        if (hosted != null)
+        {
+            EndForEveryone(game);
+            return;
+        }
+        Broadcast(new ResetMessage(game.Id));
+        if (game.HostMissingFor > 0 || game.Broken)
+            game.Ended = EndReason.Cancelled;
+    }
+
+    private void EndForEveryone(TableGame game)
+    {
+        game.Ended = EndReason.Cancelled;
+        Broadcast(new EndMessage(game.Id, EndReason.Cancelled));
+        hosted = null;
     }
 
     /// <summary>After a restart: ask whoever hosts this table to replay the running game.</summary>
@@ -160,6 +217,13 @@ public sealed class TableSession
                     break;
                 case AskMessage:
                     break; // nothing running here to replay
+                case ResetHoldMessage m when Game is { Over: false } held && held.Id == m.GameId && IsSeated(from):
+                    if (m.Holding ? resetHolders.Add(from) : resetHolders.Remove(from))
+                        ResetSignalled?.Invoke(from, m.Holding ? ResetSignal.HoldStarted : ResetSignal.HoldStopped);
+                    break;
+                case ResetMessage m when Game is { Over: false } stuck && stuck.Id == m.GameId && IsSeated(from):
+                    HandleReset(from, stuck);
+                    break;
                 default:
                     Rejected++;
                     break;
@@ -202,6 +266,20 @@ public sealed class TableSession
 
     private bool IsFromHost(ulong from, uint gameId) => Game != null && Game.Id == gameId && Game.Host == from && hosted == null;
 
+    // A reset from someone at the table: the host ends a paused game for everyone; anyone else, with the host gone, ends
+    // their own copy (with the host there, its End will come). A running game is never reset.
+    private void HandleReset(ulong from, TableGame game)
+    {
+        resetHolders.Remove(from);
+        ResetSignalled?.Invoke(from, ResetSignal.Reset);
+        if (hosted != null && game.Paused)
+            EndForEveryone(game);
+        else if (hosted == null && (game.HostMissingFor > 0 || game.Broken))
+            game.Ended ??= EndReason.Cancelled;
+        else if (hosted != null)
+            Rejected++;
+    }
+
     private bool IsSeated(ulong id) => id != 0 && Enumerable.Range(0, 4).Any(chair => chairs.Occupant(chair) == id);
 
     // A player's or spectator's side: feed the local view (unless it broke and a replay is on its way), and give up on
@@ -241,6 +319,7 @@ public sealed class TableSession
         hosted = null;
         hostGoneSince = null;
         LobbyHost = 0;
+        resetHolders.Clear();
     }
 
     // A game comes from a crewmate with the mod who plays in it, seats nobody twice, and either hosts this table's lobby,

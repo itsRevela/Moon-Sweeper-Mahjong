@@ -36,6 +36,7 @@ internal sealed class MahjongHud : IDisposable
     private readonly ResultPlate resultPlate;
     private readonly WaitsPopup waitsPopup;
     private readonly ChiiPopup chiiPopup;
+    private readonly ResetButton resetButton;
     private readonly TMP_Text statusText;
     private readonly List<(Button Button, Func<HudState, bool> Visible)> actionButtons = new();
     private HudLobby? shownLobby;
@@ -73,6 +74,7 @@ internal sealed class MahjongHud : IDisposable
         resultPlate = new ResultPlate(kit, stage, assets, () => Callbacks.Acknowledge?.Invoke());
         waitsPopup = new WaitsPopup(kit, stage, assets);
         chiiPopup = new ChiiPopup(kit, stage, assets);
+        resetButton = new ResetButton(kit, stage, (MoonWorkshopKit.FrameW - 400f) / 2f, ButtonRowY - 52f - 84f); // above the status line
 
         statusText = kit.Text(stage, "", 0f, ButtonRowY - 52f, 1920f, 40f, 24f, MoonWorkshopKit.Orange, null, TextAlignmentOptions.Top);
 
@@ -138,8 +140,21 @@ internal sealed class MahjongHud : IDisposable
         resultPlate.Dispose();
         waitsPopup.Dispose();
         chiiPopup.Dispose();
+        resetButton.Dispose();
         if (stage != null)
             UnityEngine.Object.Destroy(stage.gameObject);
+    }
+
+    // Reset table, while `offered` (the game is stuck): follows the mouse each frame; returns what the player did.
+    public ResetPress UpdateReset(bool offered, float deltaTime)
+    {
+        var mouse = MoonInput.PlayMouse;
+        if (mouse == null)
+            return resetButton.Update(false, Vector2.zero, false, false, null, deltaTime);
+        var canvas = stage.GetComponentInParent<Canvas>();
+        var camera = canvas == null || canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
+        return resetButton.Update(offered, mouse.position.ReadValue(), mouse.leftButton.isPressed, mouse.leftButton.wasPressedThisFrame,
+            camera, deltaTime);
     }
 
     // The chosen length shows as the primary (orange) button; only the host can change it or deal.

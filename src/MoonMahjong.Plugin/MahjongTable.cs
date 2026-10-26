@@ -47,6 +47,9 @@ public sealed class MahjongTable : MonoBehaviour
     private Vector3 facing;
     private bool shownPaused; // for the log
     private MahjongHud? hud;
+    private ResetAudio? resetAudio;
+    // The game the reset sounds watch end (a reset ends it "Cancelled": the chime).
+    private TableGame? soundedGame;
     private float? devDealAt;
     private int failures;
     private bool stopped;
@@ -168,6 +171,7 @@ public sealed class MahjongTable : MonoBehaviour
             devDealAt = null;
             Deal();
         }
+        UpdateReset(table, chair);
 
         HudState? state = null;
         if (match != null && IsDone(match, chair))
@@ -188,10 +192,42 @@ public sealed class MahjongTable : MonoBehaviour
             match.Update(now, pointer, click);
             state = match.Describe();
             var notice = TableNotices.During(game, chair);
+            var resetting = table.ResetHolders.Where(id => id != table.Link.LocalId).Select(table.Link.NameOf).ToList();
+            if (resetting.Count > 0)
+                notice = $"{string.Join(" and ", resetting)} {(resetting.Count == 1 ? "is" : "are")} resetting the table...";
             state.Status = string.Join("   ", new[] { notice, state.Status }.Where(text => text.Length > 0));
         }
         display?.Show(state?.Console);
         hud?.Show(state, match == null ? Lobby() : null);
+    }
+
+    // Reset table: the HUD's hold button while the game is stuck, and the sounds when a game a reset was charging ends.
+    [HideFromIl2Cpp]
+    private void UpdateReset(TableSession table, int chair)
+    {
+        if (hud != null)
+        {
+            switch (hud.UpdateReset(table.CanReset, Time.unscaledDeltaTime))
+            {
+                case ResetPress.Started:
+                    table.HoldReset(true);
+                    break;
+                case ResetPress.Stopped:
+                    table.HoldReset(false);
+                    break;
+                case ResetPress.Completed when table.CanReset:
+                    Plugin.Logger.LogInfo($"Mahjong game {table.Game!.Id} reset from chair {chair}");
+                    table.Reset();
+                    break;
+            }
+        }
+        if (soundedGame != table.Game)
+            soundedGame = table.Game is { Over: false } ? table.Game : null;
+        else if (soundedGame is { Over: true } ended)
+        {
+            resetAudio?.GameEnded(ended.Ended == EndReason.Cancelled);
+            soundedGame = null;
+        }
     }
 
     // The table is set up once the lounge has numbered its spots (MoonGameLounge.Awake, which may run after ours).
@@ -211,6 +247,8 @@ public sealed class MahjongTable : MonoBehaviour
         session = new TableSession(key, CrewHub.Link, chairs,
             new TableOptions(config.GameSettings, Length: GameLengths.FromRoundCount(config.RoundCount.Value)));
         CrewHub.Register(session);
+        resetAudio = new ResetAudio(gameObject);
+        session.ResetSignalled += (_, signal) => resetAudio.Signal(signal, session.ResetHolders.Count);
         Plugin.Logger.LogInfo($"Mahjong table '{key}' ready in '{lounge.name}'");
         return true;
     }
@@ -239,13 +277,13 @@ public sealed class MahjongTable : MonoBehaviour
         Plugin.Logger.LogInfo($"Mahjong game {game.Id} shown: {string.Join(", ", game.Names)} ({game.Length}); local seat {game.LocalSeat}, host {game.Host}");
     }
 
-    // A game leaves the table when its host has left, when the local player closes its final result, or (for a watcher
-    // who is not sitting, and so has no result to close) as soon as it is over.
+    // A game leaves the table when its host has left, when it was reset (or cancelled after an error), when the local
+    // player closes its final result, or (for a watcher who is not sitting, with no result to close) once it is over.
     [HideFromIl2Cpp]
     private static bool IsDone(MatchController shown, int chair)
     {
         var game = shown.Game;
-        return game.Ended == EndReason.HostLeft || shown.Finished || game.Over && game.LocalSeat < 0 && chair < 0;
+        return game.Ended is EndReason.HostLeft or EndReason.Cancelled || shown.Finished || game.Over && game.LocalSeat < 0 && chair < 0;
     }
 
     private void CloseGame()
@@ -319,6 +357,7 @@ public sealed class MahjongTable : MonoBehaviour
     // The local player stood up: the session keeps running (the host pauses the game until they sit back down).
     private void LocalLeft()
     {
+        session?.HoldReset(false); // standing up lets go of Reset table
         hud?.Dispose();
         hud = null;
         devDealAt = null;

@@ -18,6 +18,9 @@ public sealed class TableProtocolTests
         new PauseMessage(42, true, 0b0101),
         new EndMessage(42, EndReason.HostLeft),
         new AskMessage(42),
+        new ResetHoldMessage(42, true),
+        new ResetHoldMessage(42, false),
+        new ResetMessage(42),
     };
 
     [Theory]

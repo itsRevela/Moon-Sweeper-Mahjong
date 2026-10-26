@@ -100,6 +100,19 @@ Steam's reliable messages on one channel arrive in order, once, while the sessio
 - Messages are not numbered: a message Steam fails to send (it logs a warning) is not resent, and the client notices
   only if its copy of the game then breaks (and asks for a replay).
 
+## Resetting a stuck game
+
+A game can wait forever: someone stands up and doesn't come back, or the host is gone and the countdown has minutes
+left. Anyone sitting at the table, in any chair, then sees **Reset table**, a hold button (requested). Holding it for
+5 seconds (`ResetSounds.HoldSeconds`) ends the game and the table opens again (the start plate).
+
+- `ResetHold` (start/stop) goes to everyone, so everyone at the table hears it charge (`ResetAudio`: a rising hum from
+  the table, a falling blip if the last holder lets go, a chime when the game ends) and sees "<name> is resetting the
+  table...". Holders who stand up stop counting.
+- `Reset` at the end of the hold. The host ends a paused game for everyone (`End(Cancelled)`); with the host gone,
+  each client ends its own copy at once instead of waiting out the countdown. Both are accepted only from someone
+  sitting at the table, and never for a game that is running normally.
+
 ## What players see
 
 - Start plate: who the deal would seat ("You, Rin and two computer players"); the host picks the length and deals,

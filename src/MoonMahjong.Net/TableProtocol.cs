@@ -39,6 +39,12 @@ public sealed record EndMessage(uint GameId, EndReason Reason) : TableMessage;
 /// <summary>To the host: replay this game (0: whatever is running) for my seat, or as a spectator.</summary>
 public sealed record AskMessage(uint GameId) : TableMessage;
 
+/// <summary>Someone at the table started (or stopped) holding Reset table on this stuck game: everyone hears it charge.</summary>
+public sealed record ResetHoldMessage(uint GameId, bool Holding) : TableMessage;
+
+/// <summary>Someone at the table held Reset table to the end: the stuck game ends and the table opens again.</summary>
+public sealed record ResetMessage(uint GameId) : TableMessage;
+
 /// <summary>
 /// The wire format of crew-play messages: 'M', 'J', a version, the table's key, a type and the fields. Decoding treats
 /// the bytes as untrusted (they come from crewmates' machines): anything foreign, unknown, truncated, trailing or out of
@@ -90,7 +96,7 @@ public static class TableProtocol
 
     private enum Kind : byte
     {
-        Lobby = 1, GameStart, ToSeat, FromSeat, Spectate, Pause, End, Ask,
+        Lobby = 1, GameStart, ToSeat, FromSeat, Spectate, Pause, End, Ask, ResetHold, Reset,
     }
 
     public static byte[] Encode(string tableKey, TableMessage message)
@@ -181,6 +187,15 @@ public static class TableProtocol
                 w.Write((byte)Kind.Ask);
                 w.Write(m.GameId);
                 break;
+            case ResetHoldMessage m:
+                w.Write((byte)Kind.ResetHold);
+                w.Write(m.GameId);
+                w.Write(m.Holding);
+                break;
+            case ResetMessage m:
+                w.Write((byte)Kind.Reset);
+                w.Write(m.GameId);
+                break;
             default:
                 throw new ArgumentException($"{message?.GetType().Name ?? "null"} has no wire format", nameof(message));
         }
@@ -227,6 +242,10 @@ public static class TableProtocol
                 }
             case Kind.Ask:
                 return new AskMessage(r.ReadUInt32());
+            case Kind.ResetHold:
+                return new ResetHoldMessage(r.ReadUInt32(), r.ReadBoolean());
+            case Kind.Reset:
+                return new ResetMessage(r.ReadUInt32());
             default:
                 throw new InvalidDataException($"unknown table message type {(byte)kind}");
         }
