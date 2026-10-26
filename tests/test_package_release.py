@@ -38,8 +38,14 @@ def names(zip_path: Path) -> set[str]:
         return set(z.namelist())
 
 
-def test_version_is_read_from_the_plugin():
-    assert package_release.plugin_version() == "0.1.0"
+def test_version_is_read_from_the_plugin(tmp_path):
+    source = tmp_path / "Plugin.cs"
+    source.write_text('    public const string Version = "9.8.7";\n', encoding="utf-8")
+    assert package_release.plugin_version(source) == "9.8.7"
+
+
+def test_the_plugin_has_a_version():
+    assert package_release.plugin_version()
 
 
 def test_zip_is_named_for_the_version(inputs):

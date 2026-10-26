@@ -5,6 +5,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-25
+
+### Fixed
+- The tables at three of the base's four stations showed chess pieces and would not start a game (each try failed,
+  and after three the table turned itself off). The game builds the other lounges by cloning one that the mod had
+  already set up: a clone carries the mod's component and table top, but none of the component's fields, and its own
+  chess table spawns a fresh set of pieces, so the mod skipped setting it up. Any table not yet set up is now set up
+  (copied table top replaced, chess pieces hidden), including at its first frame. Found by a crew at the east station;
+  every earlier test had used the station the save starts at.
+- Pressing Riichi with more than one possible riichi discard changed nothing on screen (reported: "the button didn't
+  react"), and pressing it again silently took the riichi back. Now the button reads "Cancel riichi", the status line
+  says to choose the tile, and the discards that keep the hand ready (the only ones that can be picked) stand raised.
+
+### Added
+- `[Developer] DevTable`: with `DevAutoPlay`, sit at a given station's table (north, south, east or west) instead of
+  the nearest, so the other stations' tables can be checked too.
+- A log line at each of the local player's turns (whether riichi and tsumo were offered, and the hand), so a report
+  like "riichi wasn't offered" can be checked. New engine tests drive a real client on fixed walls and confirm riichi
+  is offered on the draw that makes it possible (also after passing on a call), and only ready-keeping discards can
+  be chosen after pressing it.
+
 ## [0.1.0] - 2026-10-25
 
 The first release: the mahjong table, played alone against computer players or with up to three crewmates.
