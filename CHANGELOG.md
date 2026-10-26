@@ -5,6 +5,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.5.3] - 2026-10-26
+
+### Added
+- A **Mahjong** volume slider in the game's Settings > Audio (requested), after Master volume, Music and Sound effects.
+  It sets the level of every table sound (the spoken calls, the tiles and the Reset table sounds) independently of
+  Sound effects: the game's Master volume still applies, and at 0% the table is silent. It is the game's own slider row
+  (`MoonSettingsScreen.SliderRow`, added by a Harmony postfix on `MoonSettingsScreen.Build`) and is saved in the mod's
+  config as `Audio.Volume`.
+
+### Changed
+- All table sounds, tile noises included, now play on the table's own audio sources (`MahjongAudio`) instead of the
+  game's shared one-shot pool. The game puts Master x Sound effects on the audio listener, so, like the game's music,
+  these sources ignore the listener and apply Master x Mahjong themselves; the game's 3D setup
+  (`MoonOneShot.Configure`) still shapes how they carry around the table.
+
 ## [0.1.5.2] - 2026-10-26
 
 ### Changed
