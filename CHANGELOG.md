@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-26
+
+### Added
+- Reset table (requested): when a game is stuck (paused for someone who isn't back, or its host gone), anyone sitting
+  at the table can hold **Reset table** for 5 seconds to end it and open the table again. The hold button fills, its
+  glow races, it shakes near the end and counts down; everyone at the table hears it charge (quiet sounds made in code,
+  `Table.Presentation.ResetSounds`) and sees who is resetting. New crew messages `ResetHold` and `Reset`, accepted
+  only from someone at the table and never for a running game; with the host gone each client ends its copy at once.
+  Tests in `tests/MoonMahjong.Net.Tests/ResetTests.cs` and `ResetSoundsTests.cs`; details in `docs/crew-play.md`.
+
 ## [0.1.3] - 2026-10-26
 
 ### Added
