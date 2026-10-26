@@ -5,6 +5,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-25
+
+Table aids from Mahjong Soul, and an updater.
+
+### Added
+- Waits popup (requested, as in Mahjong Soul): while choosing a riichi discard, hovering one of the allowed tiles
+  shows the tiles the hand would then win on, as 3D tiles filmed like the round result's, each with how many are left
+  (four less the copies the player can see in their hand, the ponds, the calls and the dora indicators). The counting
+  is `Table.Presentation.Waits`, with tests; the popup has its own tile studio, apart from the round result's.
+- The discard the player may chii, pon or kan glows warm while the call buttons are up (requested).
+- Hovering a tile in the hand greys its copies on the board (requested, as in Mahjong Soul): the face-up tiles of that
+  type in the ponds, the calls and the dora indicators (`Table.Presentation.BoardTiles`, with tests). Tiles have two
+  new looks for these, highlighted and dimmed, beside the table and own-hand ones.
+- After declaring riichi, each drawn tile is thrown by itself after a moment (requested, as in Mahjong Soul), unless
+  it lets the player tsumo or kan, which they still decide (`ClientRoundState.RiichiAutoDiscard`, with tests).
+- "Update Moon Sweeper Mahjong.bat" in the release zip (requested): when the mod is installed, it asks GitHub for the
+  latest release and, if newer, downloads it, checks it against the SHA-256 GitHub publishes for it, and runs that
+  release's own installer to reinstall with the settings kept. It is the installer script with `-Action Update`;
+  nothing changes if GitHub can't be reached, the download doesn't match, or the game is running.
+
 ## [0.1.1] - 2026-10-25
 
 ### Fixed
