@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.5.1] - 2026-10-26
+
+### Changed
+- The round-end hologram's text is now steady (requested). It no longer shimmers or glitches; the pop-in, rise and
+  gentle bob stay.
+
+### Fixed
+- Dark boxes showed behind each letter of the round-end hologram, cut off at the letters' edges. The dark halo under
+  the text spread wider than the quad TextMeshPro draws each letter on, so it was clipped. The halo is gone; a thin
+  dark outline, which stays inside each quad, keeps the text readable against the felt and the lounge instead.
+
 ## [0.1.5] - 2026-10-26
 
 ### Added
