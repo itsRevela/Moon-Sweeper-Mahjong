@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.5.2] - 2026-10-26
+
+### Changed
+- The spoken calls (riichi, chii, pon, kan, ron, tsumo) now sound as if heard over a suit radio (requested: in theme
+  with the space suits, and fun). A squelch burst opens the channel; the voice is squeezed into the radio band (450 to
+  2,800 Hz, two filter passes each side), soft-clipped for a little crunch, with a faint hiss; a squelch tail closes it.
+  `Table.Presentation.RadioVoice` does it in plain sample code when the clips load (mono, the same on every machine),
+  with tests; no Unity audio filters, which the game's build may have stripped.
+
+### Fixed
+- Spoken calls (riichi, chii, pon, kan, ron, tsumo) could be cut off mid-word ("Rii…") or not heard at all. The table
+  played every sound through the game's shared one-shot pool (`MoonOneShot`), which has a fixed number of sources for
+  the whole base; when they are all busy it takes over one still playing. The calls now play on an audio source of the
+  table's own, set up by the game's `MoonOneShot.Configure` like the Reset table charge, where nothing else can take them
+  over. Tile noises still use the shared pool. `TableSounds.IsSpoken` picks the calls, with tests.
+- A four-riichi abortive draw showed −1,000 for every player, which read as a penalty. The change column counted each
+  player's own riichi deposit, though the deposit is a bet that stays on the table for the next winner. A deposit now
+  leaves a player's points the moment it goes down: the centre console drops by 1,000 on declaring
+  (`GameState.ShownPoints`), and the result shows only what the round itself paid (`GameScorePlayer.Change`, the
+  transfer without the player's own deposit). A four-riichi draw now shows 0 for everyone; a riichi winner's change still
+  includes every stick they collect, and a riichi discard that is ronned returns its deposit as before. The scores
+  themselves are unchanged. The engine tracks each round's deposit (`GameScorePlayer.Deposit`), with tests.
+
 ## [0.1.5.1] - 2026-10-26
 
 ### Changed
