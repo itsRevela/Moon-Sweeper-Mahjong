@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.5.4] - 2026-10-26
+
+### Fixed
+- A table could fail every game it started and switch itself off ("Value cannot be null. Parameter name: source" from
+  `MahjongAssets.CreatePlainMaterial`). The table assets, loaded once per session, kept the first chess table's material
+  as the template for materials made later; joining another crew reloads the world and destroys that material, so the
+  riichi stick material, made when a table first shows a game, came from a destroyed template. The assets now keep a
+  copy of the template of their own that survives world reloads.
+
 ## [0.1.5.3] - 2026-10-26
 
 ### Added

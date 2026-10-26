@@ -11,7 +11,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string Guid = "itsrevela.moonsweepers.mahjong";
     public const string Name = "Moon Mahjong";
-    public const string Version = "0.1.5.3";
+    public const string Version = "0.1.5.4";
 
     internal static ManualLogSource Logger { get; private set; } = null!;
     internal static MahjongConfig Settings { get; private set; } = null!;
