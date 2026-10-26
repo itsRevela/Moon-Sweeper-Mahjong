@@ -7,41 +7,6 @@ namespace MoonMahjong.Core.Tests.Server;
 // ClientRoundState from a server round on a fixed wall (the dealer, seat 0, is the client).
 public sealed class ClientRiichiTests
 {
-    // A server round on a fixed wall: the scripted round state behind the real message broadcasting.
-    private sealed class FixedWallRound : ServerGameRound
-    {
-        public FixedWallRound(Tile[] wall, IReadOnlyList<IServerRoundPlayer> players) : base(new RoundStartInfo(WallBuilder.WallIndex))
-        {
-            Scripted = new ScriptedServerRoundState(ServerSettings.Default, wall);
-            Round = Scripted;
-            Init();
-            for (var i = 0; i < players.Count; i++)
-                Players.Add(new GameRoundServerPlayer(players[i], i));
-        }
-
-        public ScriptedServerRoundState Scripted { get; }
-
-        public override void MessageReceived(IServerRoundPlayer player, ClientMessage message)
-        {
-        }
-    }
-
-    private sealed class Seat : IServerRoundPlayer
-    {
-        private readonly ClientRoundState? client;
-
-        public Seat(ClientRoundState? client = null) => this.client = client;
-
-        public bool IsSpectator => false;
-        public bool IsDisconnected => false;
-
-        public void Send(ServerMessage message)
-        {
-            if (client != null && message is not ServerMessageRoundStart) // ClientGame consumes that one itself
-                client.ReceiveMessage(message);
-        }
-    }
-
     // The dealer's client at their first turn, with this starting hand and first draw, and its Riichi button.
     private static (ClientRoundState Client, bool RiichiOffered) FirstTurn(string dealerHand, string firstDraw)
     {
@@ -50,7 +15,7 @@ public sealed class ClientRiichiTests
         bool? riichi = null;
         client.SetRiichiState += v => riichi = v;
         var wall = WallBuilder.Build(new[] { dealerHand, null, null, null }, new[] { firstDraw });
-        var round = new FixedWallRound(wall, new IServerRoundPlayer[] { new Seat(client), new Seat(), new Seat(), new Seat() });
+        var round = new FixedWallRound(wall, new IServerRoundPlayer[] { new ClientFeedSeat(client), new ClientFeedSeat(), new ClientFeedSeat(), new ClientFeedSeat() });
 
         round.Start(0);
         round.Scripted.Pump();
@@ -135,7 +100,7 @@ public sealed class ClientRiichiTests
         client.SetContinueState += v => continueEnabled = v;
         client.SetTileSelectGroups += v => groups = v;
         var wall = WallBuilder.Build(new[] { "234p456p678s22s4m9s", null, null, null }, new[] { "1z6m", "5z", "6z", "2s" });
-        var round = new FixedWallRound(wall, new IServerRoundPlayer[] { new Seat(client), new Seat(), new Seat(), new Seat() });
+        var round = new FixedWallRound(wall, new IServerRoundPlayer[] { new ClientFeedSeat(client), new ClientFeedSeat(), new ClientFeedSeat(), new ClientFeedSeat() });
         var server = round.Scripted;
         client.DoAction += action => server.BufferAction(new ClientServerAction(0, action));
         var drawn = new Tile?[4];
@@ -170,60 +135,12 @@ public sealed class ClientRiichiTests
         Assert.Equal(new[] { false, true }, riichiAtTurn);
     }
 
-    // A fixed-wall round where the other seats throw what they draw and pass on every call; the dealer is the client.
-    private sealed class ScriptedTable
-    {
-        private readonly FixedWallRound round;
-        private bool timer, continueEnabled;
-
-        public ScriptedTable(string dealerHand, string dealerDraws)
-        {
-            Client = new ClientRoundState(new RoundStartInfo(WallBuilder.WallIndex), ServerSettings.Default, 0, Wind.East, WallBuilder.Dealer,
-                new[] { true, true, true, true });
-            Client.SetTimerState += v => timer = v;
-            Client.SetContinueState += v => continueEnabled = v;
-            var wall = WallBuilder.Build(new[] { dealerHand, null, null, null }, new[] { dealerDraws, "567z", "567z", "123z" });
-            round = new FixedWallRound(wall, new IServerRoundPlayer[] { new Seat(Client), new Seat(), new Seat(), new Seat() });
-            var server = round.Scripted;
-            Client.DoAction += action => server.BufferAction(new ClientServerAction(0, action));
-            var drawn = new Tile?[4];
-            server.GameDrawTile += (seat, tile, _) => drawn[seat] = tile;
-            server.GameGetTurnDecision += seat =>
-            {
-                if (seat != 0)
-                    server.BufferAction(new ClientServerAction(seat, new TileDiscardClientAction(drawn[seat]!.ID)));
-            };
-            server.GameGetCallDecision += seat =>
-            {
-                if (seat != 0)
-                    server.BufferAction(new ClientServerAction(seat, new NoCallClientAction()));
-            };
-            round.Start(0);
-        }
-
-        public ClientRoundState Client { get; }
-
-        // Runs until it is the dealer's turn again (passing on any call offered on the way).
-        public void NextTurn()
-        {
-            for (var i = 0; i < 40; i++)
-            {
-                round.Scripted.Pump();
-                if (timer && continueEnabled)
-                    Client.ClientContinue();
-                else if (timer)
-                    return;
-            }
-            throw new InvalidOperationException("the dealer's turn never came");
-        }
-    }
-
     // Ready on 5m with East; riichi throws East (the only tile that keeps it ready). Next draw: 9p (no win) or 5m (tsumo).
     private const string ReadyOnFiveMan = "234p456p678s22s46m";
 
     private static ScriptedTable AfterRiichi(string secondDraw)
     {
-        var table = new ScriptedTable(ReadyOnFiveMan, "1z" + secondDraw);
+        var table = new ScriptedTable(ReadyOnFiveMan, new[] { "1z" + secondDraw, "567z", "567z", "123z" });
         table.NextTurn();
         table.Client.ClientRiichi(false);
         table.NextTurn();
@@ -249,7 +166,7 @@ public sealed class ClientRiichiTests
     [Fact]
     public void BeforeRiichi_NothingIsDiscardedForThePlayer()
     {
-        var table = new ScriptedTable(ReadyOnFiveMan, "1z9p");
+        var table = new ScriptedTable(ReadyOnFiveMan, new[] { "1z9p", "567z", "567z", "123z" });
         table.NextTurn();
 
         Assert.Null(table.Client.RiichiAutoDiscard);

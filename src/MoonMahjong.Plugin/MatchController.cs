@@ -138,6 +138,7 @@ internal sealed class MatchController : IDisposable
     }
 
     public void Chii() => round?.ClientChii();
+    public void ChooseChii(int option) => round?.ClientChooseChii(option);
     public void Pon() => round?.ClientPon();
     public void Kan() => round?.ClientKan();
     public void Riichi() => round?.ClientRiichi(false);
@@ -189,6 +190,12 @@ internal sealed class MatchController : IDisposable
         if (!state.ChoosingRiichi)
             riichiWaits = null;
         state.Waits = state.ChoosingRiichi ? HoveredRiichiWaits() : null;
+        var chiiOptions = round?.ChiiOptions ?? Array.Empty<IReadOnlyList<Tile>>();
+        state.ChiiOptions = chiiOptions.Count == 0 ? null : chiiOptions
+            .Select(option => (IReadOnlyList<ChiiTile>)option
+                .Select((tile, i) => new ChiiTile(tile.TileType, tile.Dora, i == 0)) // the discard comes first
+                .OrderBy(tile => tile.Type).ToList())
+            .ToList();
         state.Tsumo = tsumo;
         state.Ron = ron;
         state.Continue = continueEnabled;
@@ -197,6 +204,7 @@ internal sealed class MatchController : IDisposable
         var limited = timer && !settings.UnlimitedDecisionTime;
         var remaining = limited ? Math.Max(0f, timings.DecisionTime - (now - timerStarted)) : 0f;
         state.Status = (state.ChoosingRiichi ? "Riichi: choose the tile to discard   " : "") +
+                       (state.ChiiOptions != null ? "Chii: choose the sequence   " : "") +
                        (limited ? $"{Mathf.CeilToInt(remaining)} s" : "") + (furiten ? "   furiten" : "");
 
         if (client.AwaitingScoreAcknowledgement && lastSheet != null)

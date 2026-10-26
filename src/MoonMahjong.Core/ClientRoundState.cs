@@ -3,6 +3,7 @@
 // server_turn_decision/server_call_decision (a debugging export of the state to disk) are dropped.
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace MoonMahjong.Core;
 
@@ -396,6 +397,22 @@ public sealed class ClientRoundState
     // could tsumo or kan instead (a mod addition, as Mahjong Soul does).
     public Tile? RiichiAutoDiscard => actionState == State.Turn ? riichiAutoDiscard : null;
     private Tile? riichiAutoDiscard;
+
+    // Chii was pressed and more than one sequence is possible: each one (the discard, then the two hand tiles), for the
+    // HUD to show and the player to pick with ClientChooseChii (a mod addition; pressing Chii again cancels).
+    public IReadOnlyList<IReadOnlyList<Tile>> ChiiOptions => actionState == State.SelectChii
+        ? selectionGroups.Where(g => g.Type == TileSelectionGroup.GroupType.Chii).Select(g => (IReadOnlyList<Tile>)g.HighlightTiles).ToList()
+        : Array.Empty<IReadOnlyList<Tile>>();
+
+    // Calls the chosen sequence from ChiiOptions; anything else (no such option, not choosing) does nothing.
+    public void ClientChooseChii(int option)
+    {
+        var options = ChiiOptions;
+        if (option < 0 || option >= options.Count)
+            return;
+        DecisionFinished();
+        DoChii(options[option][1], options[option][2]);
+    }
 
     public void ClientRiichi(bool open)
     {

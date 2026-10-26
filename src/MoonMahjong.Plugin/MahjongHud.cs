@@ -35,11 +35,14 @@ internal sealed class MahjongHud : IDisposable
     private readonly Button dealButton;
     private readonly ResultPlate resultPlate;
     private readonly WaitsPopup waitsPopup;
+    private readonly ChiiPopup chiiPopup;
     private readonly TMP_Text statusText;
     private readonly List<(Button Button, Func<HudState, bool> Visible)> actionButtons = new();
     private HudLobby? shownLobby;
     private Button riichiButton = null!;
     private bool riichiCancels;
+    private Button chiiButton = null!;
+    private bool chiiCancels;
 
     public HudCallbacks Callbacks { get; } = new();
 
@@ -69,10 +72,11 @@ internal sealed class MahjongHud : IDisposable
 
         resultPlate = new ResultPlate(kit, stage, assets, () => Callbacks.Acknowledge?.Invoke());
         waitsPopup = new WaitsPopup(kit, stage, assets);
+        chiiPopup = new ChiiPopup(kit, stage, assets);
 
         statusText = kit.Text(stage, "", 0f, ButtonRowY - 52f, 1920f, 40f, 24f, MoonWorkshopKit.Orange, null, TextAlignmentOptions.Top);
 
-        AddAction("Chii", s => s.Chii, () => Callbacks.Chii?.Invoke());
+        chiiButton = AddAction("Chii", s => s.Chii, () => Callbacks.Chii?.Invoke());
         AddAction("Pon", s => s.Pon, () => Callbacks.Pon?.Invoke());
         AddAction("Kan", s => s.Kan, () => Callbacks.Kan?.Invoke());
         riichiButton = AddAction("Riichi", s => s.Riichi, () => Callbacks.Riichi?.Invoke());
@@ -93,6 +97,7 @@ internal sealed class MahjongHud : IDisposable
             ShowLobby(lobby);
         resultPlate.Show(state?.Result, state?.WinningHands ?? Array.Empty<IReadOnlyList<PlacedHandTile>>(), state?.GameOver ?? false);
         waitsPopup.Show(playing ? state!.Waits : null, ButtonRowY - 64f); // above the status line
+        chiiPopup.Show(playing ? state!.ChiiOptions : null, ButtonRowY - 64f, option => Callbacks.ChooseChii?.Invoke(option));
         if (state == null)
         {
             statusText.text = "";
@@ -114,11 +119,17 @@ internal sealed class MahjongHud : IDisposable
 
         statusText.text = playing ? state.Status : "";
 
-        // After Riichi, until the discard is chosen, the same button takes it back (ClientRoundState toggles).
+        // After Riichi (or Chii), until the choice is made, the same button takes it back (ClientRoundState toggles).
         if (state.ChoosingRiichi != riichiCancels)
         {
             riichiCancels = state.ChoosingRiichi;
             MoonWorkshopKit.SetButton(riichiButton, riichiCancels ? "Cancel riichi" : "Riichi", true);
+        }
+        var choosingChii = state.ChiiOptions is { Count: > 0 };
+        if (choosingChii != chiiCancels)
+        {
+            chiiCancels = choosingChii;
+            MoonWorkshopKit.SetButton(chiiButton, chiiCancels ? "Cancel chii" : "Chii", true);
         }
     }
 
@@ -126,6 +137,7 @@ internal sealed class MahjongHud : IDisposable
     {
         resultPlate.Dispose();
         waitsPopup.Dispose();
+        chiiPopup.Dispose();
         if (stage != null)
             UnityEngine.Object.Destroy(stage.gameObject);
     }
@@ -157,6 +169,7 @@ internal sealed class HudCallbacks
     public Action? Deal;
     public Action? Acknowledge;
     public Action? Chii;
+    public Action<int>? ChooseChii;
     public Action? Pon;
     public Action? Kan;
     public Action? Riichi;
@@ -175,6 +188,7 @@ internal sealed class HudState
     public bool Chii, Pon, Kan, Riichi, Tsumo, Ron, Continue, VoidHand;
     public bool ChoosingRiichi; // Riichi pressed: the next discard declares it (the button now cancels)
     public IReadOnlyList<WaitTile>? Waits; // choosing a riichi discard: what the hovered tile's discard would wait on
+    public IReadOnlyList<IReadOnlyList<ChiiTile>>? ChiiOptions; // choosing a chii: each possible sequence, in type order
     public string Status = "";
     public ResultSheet? Result; // between rounds
     public IReadOnlyList<IReadOnlyList<PlacedHandTile>> WinningHands = Array.Empty<IReadOnlyList<PlacedHandTile>>();

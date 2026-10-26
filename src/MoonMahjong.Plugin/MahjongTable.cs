@@ -289,6 +289,7 @@ public sealed class MahjongTable : MonoBehaviour
         callbacks.Deal = Deal;
         callbacks.Acknowledge = () => match?.Acknowledge();
         callbacks.Chii = () => match?.Chii();
+        callbacks.ChooseChii = option => match?.ChooseChii(option);
         callbacks.Pon = () => match?.Pon();
         callbacks.Kan = () => match?.Kan();
         callbacks.Riichi = () => match?.Riichi();
