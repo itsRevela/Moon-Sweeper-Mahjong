@@ -28,7 +28,7 @@ internal sealed class ResetButton : IDisposable
     private const float DoneSeconds = 0.9f; // "Table reset" stays this long
     private const float ShakeFrom = 0.6f; // of the hold
     private const float ShakePixels = 6f;
-    private static readonly Color Bright = new(1f, 0.86f, 0.45f, 1f);
+    private static readonly Color Bright = new(1f, 0.74f, 0.22f, 1f);
 
     private readonly RectTransform root;
     private readonly Image glow;
@@ -139,7 +139,8 @@ internal sealed class ResetButton : IDisposable
             : "Hold to reset table";
         if (label.text != text)
             label.text = text;
-        label.color = holding || finishing ? Color.white : MoonWorkshopKit.Cream;
+        // Over the fill (past half way, or done) the text turns dark; over the dark back it stays light.
+        label.color = finishing || shown >= 0.5f ? MoonWorkshopKit.Deep : holding ? Color.white : MoonWorkshopKit.Cream;
     }
 
     private Image NewImage(string name, float left, float top, float width, float height, Color colour)

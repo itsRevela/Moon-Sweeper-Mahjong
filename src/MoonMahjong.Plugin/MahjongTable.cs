@@ -201,6 +201,11 @@ public sealed class MahjongTable : MonoBehaviour
         hud?.Show(state, match == null ? Lobby() : null);
     }
 
+    // A lambda here would compile to a MahjongTable method taking ResetSignal, which Il2CppInterop's class injection
+    // can't map (it logged "Assembly MoonMahjong.Net.dll is not registered in il2cpp"): a hidden method instead.
+    [HideFromIl2Cpp]
+    private void OnResetSignal(ulong who, ResetSignal signal) => resetAudio?.Signal(signal, session?.ResetHolders.Count ?? 0);
+
     // Reset table: the HUD's hold button while the game is stuck, and the sounds when a game a reset was charging ends.
     [HideFromIl2Cpp]
     private void UpdateReset(TableSession table, int chair)
@@ -248,7 +253,7 @@ public sealed class MahjongTable : MonoBehaviour
             new TableOptions(config.GameSettings, Length: GameLengths.FromRoundCount(config.RoundCount.Value)));
         CrewHub.Register(session);
         resetAudio = new ResetAudio(gameObject);
-        session.ResetSignalled += (_, signal) => resetAudio.Signal(signal, session.ResetHolders.Count);
+        session.ResetSignalled += OnResetSignal;
         Plugin.Logger.LogInfo($"Mahjong table '{key}' ready in '{lounge.name}'");
         return true;
     }
