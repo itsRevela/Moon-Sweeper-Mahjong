@@ -13,13 +13,78 @@ public sealed class MatchHostTests
         Enumerable.Range(0, 4).Select(i => new GamePlayer(i, "P" + i)).ToArray(),
         StartingDealer: 0, StartingScore: 25000, RoundCount: roundCount, HanchanCount: 1, UmaHigher: 20, UmaLower: 10);
 
-    private static (MatchHost Host, AutoPlayer Player) CreateMatch(int seed, int roundCount, bool acknowledge = true)
+    private static (MatchHost Host, AutoPlayer Player) CreateMatch(int seed, int roundCount, bool acknowledge = true,
+        ServerSettings? settings = null, bool answerTurns = true, bool answerCalls = true)
     {
         var client = new ClientGame();
-        var player = new AutoPlayer(client, acknowledge);
+        var player = new AutoPlayer(client, acknowledge, answerTurns, answerCalls);
         var seats = new List<MatchSeat> { new LocalClientSeat(client) };
         seats.AddRange(Enumerable.Range(1, 3).Select(i => new BotSeat(new SimpleBot(new RandomClass(seed * 7 + i)))));
-        return (new MatchHost(StartInfo(roundCount), ServerSettings.Default, new RandomClass(seed), seats, 0f), player);
+        return (new MatchHost(StartInfo(roundCount), settings ?? ServerSettings.Default, new RandomClass(seed), seats, 0f), player);
+    }
+
+    private static float RunUntil(MatchHost host, AutoPlayer player, Func<bool> done)
+    {
+        var time = 0f;
+        for (var steps = 0; !done() && steps < MaxSteps; steps++)
+        {
+            time += Step;
+            host.Process(time);
+            player.Poll();
+        }
+        Assert.True(done(), "the condition was never met within the step bound");
+        return time;
+    }
+
+    private static void RunToTheEnd(MatchHost host, AutoPlayer player, float from)
+    {
+        var time = from;
+        for (var steps = 0; !host.Finished && steps < MaxSteps; steps++)
+        {
+            time += Step;
+            host.Process(time);
+            player.Poll();
+        }
+    }
+
+    // The plugin's default (DecisionTimeLimit 0): no decision timer ever answers for a player.
+    private static readonly ServerSettings Unlimited = ServerSettings.Default with { UnlimitedDecisionTime = true };
+
+    [Fact]
+    public void DisconnectedSeat_HoldingATurnDecision_IsPlayedWithoutATimer()
+    {
+        var (host, player) = CreateMatch(seed: 1, roundCount: 4, settings: Unlimited, answerTurns: false);
+        var time = RunUntil(host, player, () => player.IgnoredTurns > 0);
+        time = RunFor(host, player, time, seconds: 30);
+
+        host.SeatDisconnected(0);
+        RunToTheEnd(host, player, time);
+
+        Assert.True(host.Finished, "the game stalled on the disconnected seat's turn");
+    }
+
+    [Fact]
+    public void DisconnectedSeat_HoldingACallDecision_IsPlayedWithoutATimer()
+    {
+        var (host, player) = CreateMatch(seed: 1, roundCount: 4, settings: Unlimited, answerCalls: false);
+        var time = RunUntil(host, player, () => player.IgnoredCalls > 0);
+        time = RunFor(host, player, time, seconds: 30);
+
+        host.SeatDisconnected(0);
+        RunToTheEnd(host, player, time);
+
+        Assert.True(host.Finished, "the game stalled on the disconnected seat's call");
+    }
+
+    [Fact]
+    public void UnansweredDecision_WithoutATimer_WaitsForThePlayer()
+    {
+        var (host, player) = CreateMatch(seed: 1, roundCount: 4, settings: Unlimited, answerTurns: false);
+        var time = RunUntil(host, player, () => player.IgnoredTurns > 0);
+
+        RunFor(host, player, time, seconds: 600);
+
+        Assert.Empty(player.Results);
     }
 
     private static int Run(MatchHost host, AutoPlayer player)
@@ -120,6 +185,151 @@ public sealed class MatchHostTests
         Assert.Equal(2, player.RoundsCreated);
     }
 
+    // Crew play: anyone with the mod who isn't seated watches through a spectator feed (seat -1, public information).
+    private sealed class SpectatorFeed : IServerRoundPlayer
+    {
+        public SpectatorFeed(ClientGame client, bool seesAllHands = false)
+        {
+            Client = client;
+            SeesAllHands = seesAllHands;
+        }
+
+        public ClientGame Client { get; }
+        public List<ServerMessage> Received { get; } = new();
+        public bool IsSpectator => true;
+        public bool SeesAllHands { get; }
+        public bool IsDisconnected => false;
+
+        public void Send(ServerMessage message)
+        {
+            Received.Add(message);
+            Client.Receive(message);
+        }
+    }
+
+    private static int AssignmentsBeforeTheFirstDiscard(bool seesAllHands)
+    {
+        var feed = new SpectatorFeed(new ClientGame(), seesAllHands);
+        var client = new ClientGame();
+        var player = new AutoPlayer(client);
+        var seats = new List<MatchSeat> { new LocalClientSeat(client) };
+        seats.AddRange(Enumerable.Range(1, 3).Select(i => new BotSeat(new SimpleBot(new RandomClass(i)))));
+        var host = new MatchHost(StartInfo(4), ServerSettings.Default, new RandomClass(3), seats, 0f, new[] { feed });
+        var time = 0f;
+        for (var steps = 0; !feed.Received.OfType<ServerMessageTileDiscard>().Any() && steps < MaxSteps; steps++)
+        {
+            time += Step;
+            host.Process(time);
+            player.Poll();
+        }
+        return feed.Received.TakeWhile(m => m is not ServerMessageTileDiscard).OfType<ServerMessageTileAssignment>().Count();
+    }
+
+    [Fact]
+    public void PublicSpectator_IsToldOnlyPublicTilesBeforeTheFirstDiscard()
+    {
+        // The dora indicator, and the discarded tile itself (revealed just before its discard message).
+        Assert.Equal(2, AssignmentsBeforeTheFirstDiscard(seesAllHands: false));
+    }
+
+    [Fact]
+    public void OpenRiichiSpectator_StillSeesEveryHand()
+    {
+        Assert.True(AssignmentsBeforeTheFirstDiscard(seesAllHands: true) >= 4 * 13, "an all-seeing spectator is told every dealt tile");
+    }
+
+    [Fact]
+    public void Spectator_IsToldTheGameStartedWithNoSeat()
+    {
+        var spectator = new ClientGame();
+        var client = new ClientGame();
+        var seats = new List<MatchSeat> { new LocalClientSeat(client) };
+        seats.AddRange(Enumerable.Range(1, 3).Select(i => new BotSeat(new SimpleBot(new RandomClass(i)))));
+        _ = new MatchHost(StartInfo(4), ServerSettings.Default, new RandomClass(1), seats, 0f, new[] { new SpectatorFeed(spectator) });
+
+        spectator.Process();
+
+        Assert.Equal(-1, spectator.PlayerIndex);
+    }
+
+    [Fact]
+    public void Spectator_SeesEveryRoundEndAsThePlayersDo()
+    {
+        var spectator = new ClientGame();
+        var spectatorResults = new List<RoundFinishResult>();
+        spectator.RoundEnded += (result, _) => spectatorResults.Add(result);
+        var client = new ClientGame();
+        var player = new AutoPlayer(client);
+        var seats = new List<MatchSeat> { new LocalClientSeat(client) };
+        seats.AddRange(Enumerable.Range(1, 3).Select(i => new BotSeat(new SimpleBot(new RandomClass(7 * 2 + i)))));
+        var host = new MatchHost(StartInfo(4), ServerSettings.Default, new RandomClass(2), seats, 0f, new[] { new SpectatorFeed(spectator) });
+
+        var time = 0f;
+        for (var steps = 0; !host.Finished && steps < MaxSteps; steps++)
+        {
+            time += Step;
+            host.Process(time);
+            spectator.Process();
+            player.Poll();
+        }
+
+        Assert.True(host.Finished);
+        Assert.Equal(player.Results.Select(r => (r.Result, string.Join(",", r.WinnerIndices))),
+            spectatorResults.Select(r => (r.Result, string.Join(",", r.WinnerIndices))));
+    }
+
+    // A watcher or player who joins late is replayed the whole game at once (crew play): every round must still be read
+    // in order, even though one round's end and the next round's start arrive in the same batch.
+    [Fact]
+    public void Spectator_CatchingUpOnAWholeGameInOneBatch_SeesEveryRoundEnd()
+    {
+        var spectator = new ClientGame();
+        var spectatorResults = new List<RoundFinishResult>();
+        spectator.RoundEnded += (result, _) => spectatorResults.Add(result);
+        var client = new ClientGame();
+        var player = new AutoPlayer(client);
+        var seats = new List<MatchSeat> { new LocalClientSeat(client) };
+        seats.AddRange(Enumerable.Range(1, 3).Select(i => new BotSeat(new SimpleBot(new RandomClass(7 * 2 + i)))));
+        var host = new MatchHost(StartInfo(4), ServerSettings.Default, new RandomClass(2), seats, 0f, new[] { new SpectatorFeed(spectator) });
+        RunToTheEnd(host, player, 0f);
+
+        spectator.Process();
+
+        Assert.Equal(player.Results.Select(r => (r.Result, string.Join(",", r.WinnerIndices))),
+            spectatorResults.Select(r => (r.Result, string.Join(",", r.WinnerIndices))));
+    }
+
+    [Fact]
+    public void Spectator_CatchingUpOnAWholeGameInOneBatch_EndsWithTheHostsPoints()
+    {
+        var spectator = new ClientGame();
+        var client = new ClientGame();
+        var player = new AutoPlayer(client);
+        var seats = new List<MatchSeat> { new LocalClientSeat(client) };
+        seats.AddRange(Enumerable.Range(1, 3).Select(i => new BotSeat(new SimpleBot(new RandomClass(7 * 3 + i)))));
+        var host = new MatchHost(StartInfo(4), ServerSettings.Default, new RandomClass(3), seats, 0f, new[] { new SpectatorFeed(spectator) });
+        RunToTheEnd(host, player, 0f);
+
+        spectator.Process();
+
+        Assert.Equal(Enumerable.Range(0, 4).Select(i => client.Game!.GetPlayer(i).Points),
+            Enumerable.Range(0, 4).Select(i => spectator.Game!.GetPlayer(i).Points));
+    }
+
+    [Fact]
+    public void ClientGame_KnowsTheRulesTheHostDealtWith()
+    {
+        var client = new ClientGame();
+        var seats = new List<MatchSeat> { new LocalClientSeat(client) };
+        seats.AddRange(Enumerable.Range(1, 3).Select(i => new BotSeat(new SimpleBot(new RandomClass(i)))));
+        var rules = ServerSettings.Default with { UnlimitedDecisionTime = true, OpenRiichi = true };
+        _ = new MatchHost(StartInfo(4), rules, new RandomClass(1), seats, 0f);
+
+        client.Process();
+
+        Assert.Equal(rules, client.Settings);
+    }
+
     [Fact]
     public void ClientGame_MirrorsTheHostsFinalPoints()
     {
@@ -188,10 +398,15 @@ public sealed class MatchHostTests
         private bool timer, continueEnabled, ron, tsumo;
         private List<TileSelectionGroup>? groups;
 
+        private readonly bool answerTurns, answerCalls;
+
         // acknowledge: press Next round as soon as a result is shown (false: leave that to the test).
-        public AutoPlayer(ClientGame client, bool acknowledge = true)
+        // answerTurns / answerCalls false: sit on that kind of decision forever (a player who walked away).
+        public AutoPlayer(ClientGame client, bool acknowledge = true, bool answerTurns = true, bool answerCalls = true)
         {
             Client = client;
+            this.answerTurns = answerTurns;
+            this.answerCalls = answerCalls;
             client.RoundCreated += (r, _, _) =>
             {
                 RoundsCreated++;
@@ -214,6 +429,8 @@ public sealed class MatchHostTests
         public List<RoundFinishResult> Results { get; } = new();
         public int ReadyMessages { get; private set; }
         public int RoundsCreated { get; private set; }
+        public int IgnoredTurns { get; private set; }
+        public int IgnoredCalls { get; private set; }
 
         private void Attach(ClientRoundState r)
         {
@@ -236,7 +453,11 @@ public sealed class MatchHostTests
         private void Respond()
         {
             var r = round!;
-            if (continueEnabled)
+            if (continueEnabled && !answerCalls)
+                IgnoredCalls++;
+            else if (!continueEnabled && !answerTurns)
+                IgnoredTurns++;
+            else if (continueEnabled)
             {
                 if (ron)
                     r.ClientRon();

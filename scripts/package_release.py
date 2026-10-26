@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "installer"
 BAT_NAME = "Install Moon Sweeper Mahjong.bat"
 PLUGIN_DIR = "BepInEx/plugins/MoonMahjong"
-REQUIRED_PLUGIN_FILES = ("MoonMahjong.dll", "MoonMahjong.Core.dll", "MoonMahjong.Table.dll")
+REQUIRED_PLUGIN_FILES = ("MoonMahjong.dll", "MoonMahjong.Core.dll", "MoonMahjong.Table.dll", "MoonMahjong.Net.dll")
 VERSION_LINE = "$ModVersion = '0.0.0-dev'"
 
 

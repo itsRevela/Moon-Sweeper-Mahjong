@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Il2CppInterop.Runtime.Attributes;
 using MoonCleaners;
+using MoonMahjong.Net;
 using MoonMahjong.Table.Layout;
 using MoonMahjong.Table.Presentation;
 using UnityEngine;
@@ -11,8 +12,10 @@ using UnityEngine.EventSystems;
 
 namespace MoonMahjong.Plugin;
 
-// One per lounge, on the chess table's GameObject. Owns the mahjong table's look, its four seats, and, while the
-// local player sits here, the HUD and the game (Phase 1: the local player against three bots).
+// One per lounge, on the chess table's GameObject. Owns the mahjong table's look, its four seats, its crew-play session
+// (docs/crew-play.md: the lobby, the deal and the game, hosted here or on a crewmate's PC; alone, it is the local player
+// against three bots), the view of the game the table shows (to players and watchers alike), and, while the local
+// player sits here, the HUD. The session runs every frame, seated or not: standing up only pauses the game.
 // Everything is placed in the chess table's local space (lounges sit at different points on the moon's sphere).
 public sealed class MahjongTable : MonoBehaviour
 {
@@ -20,6 +23,10 @@ public sealed class MahjongTable : MonoBehaviour
     private const float TableTop = 0.761f;
     private const uint LoungeRenderingLayer = 2; // MoonGameLounge.Awake sets this on every renderer it owns
     private const string TableMeshName = "Chess Table";
+    // [Developer] DevAutoPlay deals by itself this long after sitting, leaving the start plate up for a dev screenshot.
+    private const float DevDealDelay = 6f;
+    // Errors a table recovers from (TableSession.Recover) before it turns itself off for the rest of the session.
+    private const int MaxFailures = 3;
 
     private static MahjongAssets? assets;
 
@@ -29,15 +36,18 @@ public sealed class MahjongTable : MonoBehaviour
     private float frameRise;
     // The centre console's top, in the surface's local units (the console is built at the surface's origin).
     private float consoleTop;
-    private CenterDisplay? display;
-    private MahjongHud? hud;
+    private TableSession? session;
+    private LoungeChairs? chairs;
+    // The game the table shows, and the last one it stopped showing (so a finished game is not reopened).
     private MatchController? match;
-    // The match's own time: it runs only while the local player sits here, so standing up pauses the game.
-    private MatchClock? clock;
-    // [Developer] DevAutoPlay deals by itself this long after sitting, leaving the start plate up for a dev screenshot.
-    private const float DevDealDelay = 6f;
+    private TableGame? closedGame;
+    private CenterDisplay? display;
+    private Vector3 facing;
+    private bool shownPaused; // for the log
+    private MahjongHud? hud;
     private float? devDealAt;
-    private int localSeat = -1;
+    private int failures;
+    private bool stopped;
 
     public MahjongTable(IntPtr pointer) : base(pointer)
     {
@@ -70,23 +80,11 @@ public sealed class MahjongTable : MonoBehaviour
     internal void LocalSat()
     {
         RefreshSeats();
-        var local = MoonLoungePlayer.Local;
-        localSeat = local == null ? -1 : seats.IndexOf(local.Spot);
-        Plugin.Logger.LogInfo($"Local player sat at mahjong seat {localSeat} of {seats.Count} in '{transform.parent?.name}'");
-        if (localSeat < 0)
+        var chair = LocalChair();
+        Plugin.Logger.LogInfo($"Local player sat at mahjong chair {chair} of {seats.Count} in '{transform.parent?.name}'");
+        if (chair < 0)
             return;
-
         hud ??= CreateHud();
-        if (match != null && clock != null)
-        {
-            // Back at the table: carry on where the game paused, facing whichever chair they took.
-            var direction = SeatDirection(seats[localSeat]);
-            match.Face(direction);
-            display?.Face(direction);
-            clock.Resume();
-            Plugin.Logger.LogInfo($"Mahjong game resumed ({match.Describe().Console?.TilesLeft} tiles left, game clock {clock.Now:F2} s)");
-        }
-        hud.Show(match?.Describe());
         if (match == null && Plugin.Settings.DevAutoPlay.Value)
             devDealAt = Time.time + DevDealDelay;
     }
@@ -105,47 +103,166 @@ public sealed class MahjongTable : MonoBehaviour
 
     private void Update()
     {
-        if (localSeat < 0)
+        if (stopped)
             return;
-        var local = MoonLoungePlayer.Local;
-        if (local == null || local.Spot == null || seats.IndexOf(local.Spot) != localSeat)
-        {
-            LocalLeft();
-            return;
-        }
-
         try
         {
-            if (devDealAt is { } dealAt && Time.time >= dealAt)
-            {
-                devDealAt = null;
-                StartMatch(Plugin.Settings.RoundCount.Value);
-            }
-            if (match != null && clock != null)
-            {
-                clock.Tick(Time.deltaTime);
-                var (pointer, click) = ReadPointer(local);
-                match.Update(clock.Now, pointer, click);
-                if (match.Finished)
-                    EndMatch("game finished");
-            }
-            var state = match?.Describe();
-            hud?.Show(state);
-            display?.Show(state?.Console);
+            if (EnsureSession())
+                Step();
         }
         catch (Exception e)
         {
-            Plugin.Logger.LogError($"Mahjong table stopped the game after an error: {e}");
-            EndMatch("error");
+            // Drop the view; a host ends the game for everyone, anyone else is replayed it afresh (TableSession.Recover).
+            failures++;
+            Plugin.Logger.LogError($"Mahjong table '{session?.Key}' error {failures} of {MaxFailures}: {e}");
+            CloseGame();
+            session?.Recover();
+            if (failures < MaxFailures)
+                return;
+            hud?.Dispose();
+            hud = null;
+            stopped = true;
+            Plugin.Logger.LogError($"Mahjong table '{session?.Key}' is off until the game restarts");
         }
+    }
+
+    private void Step()
+    {
+        var now = Time.time;
+        var table = session!;
+        var chair = LocalChair();
+        if (chair < 0 && hud != null)
+            LocalLeft();
+
+        // A new game gets its view before the session first processes it, so the view sees every round event.
+        ShowGame(table.Game, now);
+        match?.Advance(now);
+        table.Update(now);
+
+        if (devDealAt is { } dealAt && now >= dealAt)
+        {
+            devDealAt = null;
+            Deal();
+        }
+
+        HudState? state = null;
+        if (match != null && IsDone(match, chair))
+            CloseGame();
+        if (match != null)
+        {
+            var game = match.Game;
+            if (game.Paused != shownPaused)
+            {
+                shownPaused = game.Paused;
+                Plugin.Logger.LogInfo(game.Paused
+                    ? $"Mahjong game {game.Id} paused: waiting for {string.Join(", ", game.WaitingSeats.Select(seat => game.Names[seat]))}"
+                    : $"Mahjong game {game.Id} resumed");
+            }
+            Face(ObserverDirection(game, match.ObserverSeat));
+            var playing = chair >= 0 && game.LocalSeat >= 0 && game.ChairOf(game.LocalSeat) == chair;
+            var (pointer, click) = playing ? ReadPointer(MoonLoungePlayer.Local!) : (null, false);
+            match.Update(now, pointer, click);
+            state = match.Describe();
+            var notice = TableNotices.During(game, chair);
+            state.Status = string.Join("   ", new[] { notice, state.Status }.Where(text => text.Length > 0));
+        }
+        display?.Show(state?.Console);
+        hud?.Show(state, match == null ? Lobby() : null);
+    }
+
+    // The table is set up once the lounge has numbered its spots (MoonGameLounge.Awake, which may run after ours).
+    private bool EnsureSession()
+    {
+        if (session != null)
+            return true;
+        var lounge = GetComponentInParent<MoonGameLounge>();
+        if (lounge == null)
+            return false;
+        RefreshSeats();
+        if (seats.Count != 4)
+            return false;
+        chairs = new LoungeChairs(lounge, seats);
+        var key = TableKey(lounge.Key);
+        var config = Plugin.Settings;
+        session = new TableSession(key, CrewHub.Link, chairs,
+            new TableOptions(config.GameSettings, Length: GameLengths.FromRoundCount(config.RoundCount.Value)));
+        CrewHub.Register(session);
+        Plugin.Logger.LogInfo($"Mahjong table '{key}' ready in '{lounge.name}'");
+        return true;
+    }
+
+    // The lounge's key names this table to the crew (the game's own lounge messages use it too), within the protocol's limit.
+    private static string TableKey(string? key)
+    {
+        var clipped = TableProtocol.ClipKey(key);
+        return clipped.Length > 0 ? clipped : throw new InvalidOperationException("the lounge has no key to name its mahjong table by");
+    }
+
+    [HideFromIl2Cpp]
+    private void ShowGame(TableGame? game, float now)
+    {
+        if (game == null || game == match?.Game || game == closedGame)
+            return;
+        CloseGame();
+        var observerSeat = game.LocalSeat >= 0 ? game.LocalSeat : 0;
+        facing = ObserverDirection(game, observerSeat);
+        match = new MatchController(surface, assets!, game, facing, Mathf.Max(0f, frameRise / assets!.TileSize.x), now)
+        {
+            AutoPlayDelay = Plugin.Settings.DevAutoPlay.Value ? 1.2f : null,
+            AutoAcknowledgeDelay = Plugin.Settings.DevAutoPlay.Value ? 8f : null, // long enough for a dev screenshot
+        };
+        display = new CenterDisplay(surface, consoleTop, assets.TileSize.x, facing, MoonFonts.WorkshopHead, MoonFonts.WorkshopText);
+        Plugin.Logger.LogInfo($"Mahjong game {game.Id} shown: {string.Join(", ", game.Names)} ({game.Length}); local seat {game.LocalSeat}, host {game.Host}");
+    }
+
+    // A game leaves the table when its host has left, when the local player closes its final result, or (for a watcher
+    // who is not sitting, and so has no result to close) as soon as it is over.
+    [HideFromIl2Cpp]
+    private static bool IsDone(MatchController shown, int chair)
+    {
+        var game = shown.Game;
+        return game.Ended == EndReason.HostLeft || shown.Finished || game.Over && game.LocalSeat < 0 && chair < 0;
+    }
+
+    private void CloseGame()
+    {
+        if (match == null)
+            return;
+        closedGame = match.Game;
+        Plugin.Logger.LogInfo($"Mahjong game {closedGame.Id} closed ({closedGame.Ended?.ToString() ?? "still running"})");
+        match.Dispose();
+        match = null;
+        display?.Dispose();
+        display = null;
+    }
+
+    // The chair of the seat the table is drawn for (it moves when a lone player sits down elsewhere).
+    [HideFromIl2Cpp]
+    private Vector3 ObserverDirection(TableGame game, int observerSeat) => SeatDirection(seats[game.ChairOf(observerSeat)]);
+
+    private void Face(Vector3 direction)
+    {
+        if (direction == facing)
+            return;
+        facing = direction;
+        match?.Face(direction);
+        display?.Face(direction);
+    }
+
+    [HideFromIl2Cpp]
+    private HudLobby Lobby()
+    {
+        var table = session!;
+        return new HudLobby(table.IsLobbyHost, table.LobbyLength, TableNotices.Players(table.Link, chairs!), TableNotices.Lobby(table));
     }
 
     [HideFromIl2Cpp]
     private MahjongHud CreateHud()
     {
-        var created = new MahjongHud(transform, assets!, GameLengths.FromRoundCount(Plugin.Settings.RoundCount.Value));
+        var created = new MahjongHud(transform, assets!);
         var callbacks = created.Callbacks;
-        callbacks.Start = Deal;
+        callbacks.ChooseLength = ChooseLength;
+        callbacks.Deal = Deal;
         callbacks.Acknowledge = () => match?.Acknowledge();
         callbacks.Chii = () => match?.Chii();
         callbacks.Pon = () => match?.Pon();
@@ -159,51 +276,39 @@ public sealed class MahjongTable : MonoBehaviour
     }
 
     [HideFromIl2Cpp]
-    private void Deal(GameLength length) => StartMatch(GameLengths.RoundCount(length));
-
-    private void StartMatch(int roundCount)
+    private void ChooseLength(GameLength length)
     {
-        if (match != null || localSeat < 0)
-            return;
-        var names = Enumerable.Range(0, 4).Select(i => i == localSeat ? "You" : "Bot " + ((i - localSeat + 4) % 4)).ToArray();
-        var observer = SeatDirection(seats[localSeat]);
-        clock = new MatchClock(Time.time);
-        match = new MatchController(surface, assets!, observer, localSeat, names, roundCount,
-            Mathf.Max(0f, frameRise / assets!.TileSize.x),
-            Plugin.Settings.GameSettings, clock.Now)
-        {
-            AutoPlayDelay = Plugin.Settings.DevAutoPlay.Value ? 1.2f : null,
-            AutoAcknowledgeDelay = Plugin.Settings.DevAutoPlay.Value ? 8f : null, // long enough for a dev screenshot
-        };
-        hud ??= CreateHud();
-        display = new CenterDisplay(surface, consoleTop, assets.TileSize.x, observer, hud.HeadFont, hud.TextFont);
-        Plugin.Logger.LogInfo($"Mahjong game started at seat {localSeat} ({roundCount} rounds)");
+        if (session is { IsLobbyHost: true })
+            session.ChooseLength(length);
     }
 
-    private void EndMatch(string reason)
+    // The start plate's Deal (only the table's host has it), or the dev auto-player's.
+    private void Deal()
     {
-        if (match == null)
+        if (session is not { IsLobbyHost: true, GameRunning: false } || LocalChair() < 0)
             return;
-        match.Dispose();
-        match = null;
-        clock = null;
-        display?.Dispose();
-        display = null;
-        Plugin.Logger.LogInfo($"Mahjong game ended: {reason}");
+        session.Deal();
+        ShowGame(session.Game, Time.time);
     }
 
-    // The local player stood up: the game pauses (the table keeps showing it) until they sit back down here.
+    // The local player stood up: the session keeps running (the host pauses the game until they sit back down).
     private void LocalLeft()
     {
-        if (match != null && clock != null && !clock.Paused)
-        {
-            clock.Pause();
-            Plugin.Logger.LogInfo($"Mahjong game paused: the player stood up ({match.Describe().Console?.TilesLeft} tiles left, game clock {clock.Now:F2} s)");
-        }
         hud?.Dispose();
         hud = null;
         devDealAt = null;
-        localSeat = -1;
+    }
+
+    // The local player's chair at this table, or -1.
+    private int LocalChair()
+    {
+        var local = MoonLoungePlayer.Local;
+        if (local == null || local.Spot == null)
+            return -1;
+        for (var i = 0; i < seats.Count; i++)
+            if (seats[i] != null && seats[i].Pointer == local.Spot.Pointer)
+                return i;
+        return -1;
     }
 
     // The mouse ray for tile picking; none while the pointer is over the HUD.

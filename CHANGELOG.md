@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-25
+
+The first release: the mahjong table, played alone against computer players or with up to three crewmates.
+
 ### Added
 - **Mod loader for Unity 6000.6 / IL2CPP metadata v108.** No released loader supports this game's Unity version.
   BepInEx 6 now runs Cpp2IL `development` (which reads v108) out of process, because that build needs a newer
@@ -90,15 +94,40 @@ All notable changes to this project are documented here. The format follows
   `dist/MoonSweeperMahjong-v<version>.zip`): double-click one .bat that finds Moon Sweepers through Steam's registry
   and library folders (or asks for the folder), refuses to run while the game is open, and installs or uninstalls.
   Install records every file with its SHA-256 in the same manifest as the developer installer (`scripts/loader.py`);
-  uninstall removes exactly that plus what BepInEx generated, asks whether to keep the mod's settings, and restores a
-  mod loader it moved aside (a foreign BepInEx is backed up only with consent). The .bat is a batch header that hands
+  uninstall removes exactly that plus what BepInEx generated, asks whether to keep the mod's settings (a later install
+  picks kept settings up again rather than mistaking them for another mod loader), and restores a mod loader it moved
+  aside (a foreign BepInEx is backed up only with consent). The .bat is a batch header that hands
   the rest of the file to Windows PowerShell 5.1, since plain batch can't reliably read Steam's library list or a
   manifest. Tested end to end against fake Steam libraries and game folders, including running the packaged .bat.
 - Public-repository files: the GPLv3 `LICENSE`, a player-facing README, and `installer/THIRD-PARTY-NOTICES.txt`
   with every bundled component's licence (texts in `installer/licenses/`).
+- Spectators for crew play: `MatchHost` takes spectators (told the game start with no seat, then every round), and
+  `IServerRoundPlayer.SeesAllHands` (default: `IsSpectator`, as in OpenRiichi, whose spectators are told every hidden
+  tile) lets crew play's watchers see hidden hands face down, exactly as the players do.
 - Phase 2 groundwork: `MessageCodec`, a compact binary wire format for every engine message (crew play sends them
   between crewmates). Decoding treats the bytes as untrusted and rejects unknown types, truncated or trailing data,
   out-of-range tiles, seats and tile types, overlong names and other format versions.
+- **Crew play (Phase 2):** up to four crewmates with the mod play at one table over the game's own Steam session;
+  bots take the other seats and anyone else with the mod watches. New `src/MoonMahjong.Net` (no Unity, 89 tests over
+  an in-memory network): `TableProtocol` (a small envelope around `MessageCodec`, keyed by table), `TableSession` (the
+  lobby: the first to sit hosts, simultaneous claims go to the lower Steam ID, the host picks the length and deals;
+  then hosting or following the game), `HostedGame` (the authoritative `MatchHost`, each seat's messages sent only to
+  its owner and kept so anyone who asks (on joining, restarting or loading the table late) is replayed up to date, the
+  public stream to watchers, and the pause), and `TableNotices` (the HUD's wording). The host accepts a seat's actions
+  only from its owner; clients accept game messages only from their game's host, lobby claims only from someone at the
+  table, and a game start only from a crewmate who plays in it and hosts or sits at the table; malformed or forged
+  messages are counted and dropped. A failed view of a game recovers (the host cancels it for everyone, anyone else
+  is replayed it), a missed End is caught from the host's next lobby, and a silent lobby host is forgotten after 10 s.
+  Known limits (a modified client bending the rules for its own seat; no resend of a message Steam failed to send)
+  are listed in the doc. Decisions as agreed:
+  seats belong to chairs, people join before the deal only, anyone not in their own chair pauses everyone (the HUD
+  names who the table waits for, and tells someone in the wrong chair where theirs is), a host who leaves the crew
+  ends the game after 3 minutes (with a countdown), and a player gone 3 minutes is played automatically so the others
+  can finish. Details in `docs/crew-play.md`.
+- Plugin transport (`SteamCrewLink`, `CrewHub`): Steam Networking Messages on channel 3, which the game never reads,
+  through Steam's flat C API. Each modded client sets the lobby member data `msm` to the protocol version and mod
+  messages go only to members showing it, so crewmates without the mod never receive traffic they would leave unread.
+  If Steam's networking API is missing, crew play switches off and tables still work with bots.
 
 ### Changed
 - The lounge's seat prompt says "Play mahjong" instead of "Play chess" at the mahjong chairs (requested): a prefix on
@@ -119,11 +148,29 @@ All notable changes to this project are documented here. The format follows
 - Called melds now run in a row along the table edge, leftwards from each player's right corner (requested: a second
   pon stacked toward the centre, as OpenRiichi lays them out).
 
+- Every table now runs through its crew-play session (`MahjongTable` + `LoungeChairs`); playing alone is a session
+  with nobody else in it, hosting one person and three bots, so solo and crew play share one code path.
+  `MatchController` only draws a game it is given. The game itself keeps running while the player stands (paused by
+  the host until they sit back down); a lone player's game still follows them to whichever chair they take. Player
+  names on the result plate come from Steam ("You" for the local player).
+- The start plate lists who the deal would seat ("You, Rin and two computer players"); only the table's host can pick
+  the length and deal, and everyone else sees "Waiting for <host> to deal". `[Game] RoundCount` sets the length a new
+  table offers first.
+
 ### Removed
 - The screen's info plate (round, counters, names and scores): replaced by the centre console. Player names now
   appear only on the round result plate.
 
 ### Fixed
+- A client reading several rounds at once (a crew-play replay, or a slow frame) scored a finished round only after
+  the whole batch, so the next round started from stale state and later messages hit the wrong player (an exception).
+  `ClientGame` now scores a round before it reads the next round's start.
+- With unlimited decision time (the mod's default), a player who disconnected while the game waited on their discard
+  or call was never answered for: the game hung. The engine now answers with their defaults as soon as they are marked
+  disconnected, and a seat given up on (`MatchHost.SeatDisconnected`) stays disconnected in later rounds too.
+- Hidden tiles (other players' hands seen from the side or behind, as when standing up) looked like white dragons:
+  they borrowed the white dragon's texture, which gained a "Wh" index. They now use a blank face of their own
+  (`tiles/blank.png`, the white dragon's face without the index).
 - A declared riichi stick vanished once it reached the centre: OpenRiichi's stick height fits its centre piece's
   sloped edge, but the 3D console is flat-topped, so the stick ended up inside it. It now lies on the console's top.
 - Tiles were invisible in-game: Unity's `Resources.UnloadUnusedAssets` (run when a save loads) destroyed the

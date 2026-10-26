@@ -80,6 +80,34 @@ public abstract class ServerRoundState
         }
 
         NextPlayerAction(time);
+        ResolveDisconnected();
+    }
+
+    // A mod addition: OpenRiichi's decision timer answered for a player who left mid-decision. With unlimited decision
+    // time there is no timer, so answer now with their defaults: pass on their calls, or discard on their turn.
+    private void ResolveDisconnected()
+    {
+        if (roundFinished || pendingTurnDecision != -1 || pendingCallDecisions)
+            return;
+
+        var passed = false;
+        foreach (var player in validator.Players)
+        {
+            if (player.Disconnected && validator.CanCall(player.Index))
+            {
+                validator.NoCall(player.Index);
+                passed = true;
+            }
+        }
+        if (passed)
+        {
+            CheckCallsDone();
+            return;
+        }
+
+        var current = validator.GetCurrentPlayer();
+        if (current.Disconnected && validator.IsPlayersTurn(current.Index))
+            DefaultAction();
     }
 
     public void SetDisconnected(int index)

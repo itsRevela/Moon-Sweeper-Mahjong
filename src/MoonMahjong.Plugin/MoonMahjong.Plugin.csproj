@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\MoonMahjong.Core\MoonMahjong.Core.csproj" />
     <ProjectReference Include="..\MoonMahjong.Table\MoonMahjong.Table.csproj" />
+    <ProjectReference Include="..\MoonMahjong.Net\MoonMahjong.Net.csproj" />
   </ItemGroup>
 
   <!-- dotnet build -p:DeployToGame=true copies the mod into its own plugins folder (replaced wholesale each time). -->

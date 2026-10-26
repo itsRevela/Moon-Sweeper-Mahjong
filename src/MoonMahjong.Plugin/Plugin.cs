@@ -22,8 +22,10 @@ public sealed class Plugin : BasePlugin
         Settings = new MahjongConfig(Config);
         ClassInjector.RegisterTypeInIl2Cpp<MahjongTable>();
         ClassInjector.RegisterTypeInIl2Cpp<DevLoop>();
+        ClassInjector.RegisterTypeInIl2Cpp<CrewHub>();
         new Harmony(Guid).PatchAll(typeof(Plugin).Assembly);
         AddComponent<DevLoop>();
+        AddComponent<CrewHub>();
         Logger.LogInfo($"{Name} {Version} loaded");
     }
 }

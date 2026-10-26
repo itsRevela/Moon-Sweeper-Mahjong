@@ -3,27 +3,28 @@ using System.Collections.Generic;
 using System.Linq;
 using MoonCleaners;
 using MoonMahjong.Core;
+using MoonMahjong.Net;
 using MoonMahjong.Table.Layout;
 using MoonMahjong.Table.Presentation;
 using UnityEngine;
 
 namespace MoonMahjong.Plugin;
 
-// One game at one table: the local player (a ClientGame in-process) against bots in the other three seats (Phase 1).
-// MahjongTable calls Update every frame; round events from the client drive the TableLayout, which TableView draws.
+// The local view of one game at one table (docs/crew-play.md): the TableGame's ClientGame, a player's or a watcher's,
+// whose round events drive the TableLayout that TableView draws. The game itself runs in the table's TableSession
+// (hosted here or on a crewmate's PC); MahjongTable calls Update every frame.
 internal sealed class MatchController : IDisposable
 {
     private const float PickDistance = 4f;
     private const float SoundVolume = 0.8f;
     private const float HearingDistance = 12f; // metres: MoonOneShot skips sounds farther than this from the camera
 
-    private readonly MatchHost host;
+    private readonly TableGame game;
     private readonly ClientGame client;
     private readonly Transform surface;
     private readonly MahjongAssets assets;
     private Vector3 observerDirection;
-    private readonly ServerSettings settings;
-    private readonly AnimationTimings timings;
+    private AnimationTimings timings = AnimationTimings.Default(ServerSettings.Default);
     private readonly float handAreaRise;
     private TableLayout? layout;
     private TableView? view;
@@ -39,41 +40,37 @@ internal sealed class MatchController : IDisposable
     private (Wind Wind, int Round, int Honba) playedRound; // the round being played, as the result names it
     private float roundEndedAt;
 
-    public MatchController(Transform surface, MahjongAssets assets, Vector3 observerDirection, int localSeat,
-        IReadOnlyList<string> names, int roundCount, float handAreaRise, ServerSettings settings, float time)
+    // Subscribes to the game's ClientGame, so it must be made before the session next processes it (TableSession).
+    public MatchController(Transform surface, MahjongAssets assets, TableGame game, Vector3 observerDirection, float handAreaRise,
+        float time)
     {
         this.handAreaRise = handAreaRise;
-        this.settings = settings;
-        timings = AnimationTimings.Default(settings);
         this.surface = surface;
         this.assets = assets;
+        this.game = game;
         this.observerDirection = observerDirection;
-        LocalSeat = localSeat;
-        Names = names.ToArray();
+        // The seat the table is drawn for: the player's own, or seat 0 for a watcher (as TableLayout does).
+        ObserverSeat = game.LocalSeat >= 0 ? game.LocalSeat : 0;
+        Names = game.Names.Select((name, seat) => seat == game.LocalSeat ? "You" : name).ToArray();
         now = time;
 
-        client = new ClientGame();
+        client = game.Client;
         client.RoundCreated += OnRoundCreated;
         client.RoundEnded += (result, score) =>
         {
-            var game = client.Game!;
+            var state = client.Game!;
             lastSheet = ResultSheets.Build(result, Winners(result), score.Players, Names, playedRound.Wind, playedRound.Round,
-                playedRound.Honba, game.GameIsFinished);
+                playedRound.Honba, state.GameIsFinished);
             lastHands = WinningHands(result);
             roundEndedAt = now;
         };
-
-        var seed = Environment.TickCount;
-        var seats = new MatchSeat[4];
-        for (var i = 0; i < seats.Length; i++)
-            seats[i] = i == localSeat ? new LocalClientSeat(client) : new BotSeat(new SimpleBot(new RandomClass(seed + 17 * i)));
-        var info = new GameStartInfo(Names.Select((n, i) => new GamePlayer(i, n)).ToArray(),
-            StartingDealer: 0, StartingScore: 25000, RoundCount: roundCount, HanchanCount: 1, UmaHigher: 20, UmaLower: 10);
-        host = new MatchHost(info, settings, new RandomClass(seed), seats, time);
     }
 
-    public int LocalSeat { get; }
+    public TableGame Game => game;
+    public int ObserverSeat { get; }
     public string[] Names { get; }
+
+    // The local player closed the final result (a watcher who never sits never does: MahjongTable clears that view).
     public bool Finished => client.Finished;
 
     // Testing aid ([Developer] DevAutoPlay): play the local seat after this many seconds of each decision, and press
@@ -81,11 +78,13 @@ internal sealed class MatchController : IDisposable
     public float? AutoPlayDelay { get; set; }
     public float? AutoAcknowledgeDelay { get; set; }
 
-    // Advance the game to `time`, then let the pointer pick tiles (pointer is null while it is over the HUD).
+    // The time round events are stamped with; set before the session processes the game each frame.
+    public void Advance(float time) => now = time;
+
+    // Draw the table at `time` and let the pointer pick tiles (null while it is over the HUD or the player is not playing).
     public void Update(float time, Ray? pointer, bool click)
     {
         now = time;
-        host.Process(time);
         // The host waits for the player's Next round, so the dev auto-player presses it too.
         if (AutoAcknowledgeDelay is { } wait && client.AwaitingScoreAcknowledgement && time - roundEndedAt >= wait)
             Acknowledge();
@@ -118,7 +117,7 @@ internal sealed class MatchController : IDisposable
     private bool described;
     private float roundCreatedAt;
 
-    // The local player sat back down, maybe in another chair: turn the table toward them.
+    // The observer seat's chair moved (a lone player sat down elsewhere): turn the table toward it.
     public void Face(Vector3 direction)
     {
         observerDirection = direction;
@@ -160,13 +159,14 @@ internal sealed class MatchController : IDisposable
         var game = client.Game;
         if (game == null)
             return state;
+        var settings = client.Settings;
 
         // The round, counters and scores go on the centre console (riichi shows as the stick lying there).
         var roundState = round?.RoundState;
         var seats = Enumerable.Range(0, 4).Select(i => new ConsoleSeat(game.GetPlayer(i).Wind, game.GetPlayer(i).Points)).ToArray();
         var current = roundState == null || game.RoundIsFinished ? -1 : roundState.CurrentPlayer.Index;
         state.Console = new ConsoleReadout(game.RoundWind, game.CurrentRound, game.Renchan, game.RiichiCount,
-            roundState?.TilesRemaining ?? 0, seats, current, LocalSeat);
+            roundState?.TilesRemaining ?? 0, seats, current, ObserverSeat);
 
         state.Chii = chii;
         state.Pon = pon;
@@ -199,6 +199,7 @@ internal sealed class MatchController : IDisposable
     private void OnRoundCreated(ClientRoundState r, RoundStartInfo info, GameState game)
     {
         view?.Dispose();
+        timings = AnimationTimings.Default(client.Settings);
         lastSheet = null;
         playedRound = (game.RoundWind, game.CurrentRound, game.Renchan);
         chii = pon = kan = riichi = tsumo = ron = continueEnabled = voidHand = furiten = timer = false;

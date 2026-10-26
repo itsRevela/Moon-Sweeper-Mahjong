@@ -20,7 +20,8 @@ def inputs(tmp_path):
     (loader / "winhttp.dll").write_bytes(b"doorstop")
     plugin = tmp_path / "bin"
     plugin.mkdir()
-    for name in ("MoonMahjong.dll", "MoonMahjong.pdb", "MoonMahjong.Core.dll", "MoonMahjong.Table.dll", "MoonMahjong.deps.json", "Other.dll"):
+    for name in ("MoonMahjong.dll", "MoonMahjong.pdb", "MoonMahjong.Core.dll", "MoonMahjong.Table.dll", "MoonMahjong.Net.dll",
+                 "MoonMahjong.deps.json", "Other.dll"):
         (plugin / name).write_bytes(name.encode())
     assets = tmp_path / "assets"
     (assets / "tiles").mkdir(parents=True)
@@ -55,6 +56,7 @@ def test_payload_has_the_loader_and_the_plugin_with_its_assets(inputs):
     expected = {payload + p for p in ("winhttp.dll", "BepInEx/core/BepInEx.Core.dll",
                                       "BepInEx/plugins/MoonMahjong/MoonMahjong.dll", "BepInEx/plugins/MoonMahjong/MoonMahjong.pdb",
                                       "BepInEx/plugins/MoonMahjong/MoonMahjong.Core.dll", "BepInEx/plugins/MoonMahjong/MoonMahjong.Table.dll",
+                                      "BepInEx/plugins/MoonMahjong/MoonMahjong.Net.dll",
                                       "BepInEx/plugins/MoonMahjong/assets/tiles/1m.png")}
     got = {n for n in names(package(inputs)) if n.startswith(payload) and not n.endswith("/")}
     assert got == expected
@@ -98,3 +100,9 @@ def test_packaged_bat_runs_the_installer(inputs, tmp_path):
                             capture_output=True, text=True, timeout=120, env={**os.environ, "MSM_NOPAUSE": "1"})
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Moon Sweeper Mahjong: not installed" in result.stdout
+
+
+def test_missing_crew_play_library_is_named(inputs):
+    (inputs["plugin"] / "MoonMahjong.Net.dll").unlink()
+    with pytest.raises(package_release.PackageError, match="MoonMahjong.Net.dll"):
+        package(inputs)

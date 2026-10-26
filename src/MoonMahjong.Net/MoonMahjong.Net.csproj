@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Crew play (Phase 2, docs/crew-play.md): one table's lobby, deal, routing and pausing between crewmates, over an
+       abstract transport (ICrewLink) so it runs and is tested without Steam or Unity. -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <RootNamespace>MoonMahjong.Net</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MoonMahjong.Core\MoonMahjong.Core.csproj" />
+    <ProjectReference Include="..\MoonMahjong.Table\MoonMahjong.Table.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MoonMahjong.Net.Tests" />
+  </ItemGroup>
+
+</Project>

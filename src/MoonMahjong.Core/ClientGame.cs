@@ -13,6 +13,9 @@ public sealed class ClientGame
     private readonly List<ServerMessage> queue = new();
     private GameState? game;
     private ServerSettings settings = ServerSettings.Default;
+
+    // The rules the host dealt with (from its game start), e.g. for the HUD's decision countdown.
+    public ServerSettings Settings => settings;
     private bool roundOver;
 
     public GameStartInfo? StartInfo { get; private set; }
@@ -57,6 +60,10 @@ public sealed class ClientGame
             if (game == null)
                 throw new InvalidOperationException($"{message.GetType().Name} arrived before the game started");
 
+            // A batch (a crew-play replay) can hold a round's end and the next round's start: score the old round first.
+            if (message is ServerMessageRoundStart)
+                FinishRound();
+
             if (!game.RoundIsFinished)
                 Round!.ReceiveMessage(message);
 
@@ -64,12 +71,17 @@ public sealed class ClientGame
                 CreateRound(roundStart.Info);
         }
 
-        if (game != null && !game.RoundIsFinished && Round!.Finished)
-        {
-            var score = game.RoundFinished(Round.Result!) ?? throw new InvalidOperationException("GameState rejected the round result");
-            roundOver = true;
-            RoundEnded?.Invoke(Round.Result!, score);
-        }
+        FinishRound();
+    }
+
+    // GameController.process's tail: once the round has its result, score it in GameState and report it.
+    private void FinishRound()
+    {
+        if (game == null || game.RoundIsFinished || Round is not { Finished: true })
+            return;
+        var score = game.RoundFinished(Round.Result!) ?? throw new InvalidOperationException("GameState rejected the round result");
+        roundOver = true;
+        RoundEnded?.Invoke(Round.Result!, score);
     }
 
     // GameController.menu_score_finished

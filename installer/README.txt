@@ -1,8 +1,8 @@
 Moon Sweeper Mahjong {version}
 ==============================
 
-Replaces the chess set in Moon Sweepers' moon-base lounge with a four-seat Riichi mahjong table: you against three
-computer players (crew play is coming).
+Replaces the chess set in Moon Sweepers' moon-base lounge with a four-seat Riichi mahjong table for you and up to
+three crewmates who also have the mod; computer players take any empty seat.
 
 Install
   1. Unzip this whole folder anywhere (keep the payload folder next to the .bat).
@@ -20,6 +20,12 @@ Play
   Walk up to the lounge's table and choose "Play mahjong". Pick East only or East + South, then Deal.
   Click a tile to discard it; call buttons appear when you can chii, pon, kan, riichi, tsumo or ron.
   Stand up any time to pause the game, and sit back down to carry on.
+
+Play with your crew
+  Everyone who wants to play installs the mod. The first to sit down hosts: they pick the length and Deal, and
+  everyone seated with the mod is dealt in (computer players take the empty chairs; anyone arriving later watches).
+  Your seat is your chair. Anyone standing up pauses the game for everyone. If the host leaves the crew, the game
+  ends after 3 minutes unless they come back; a player who leaves is played for after 3 minutes.
 
 Settings
   BepInEx\config\itsrevela.moonsweepers.mahjong.cfg in the game folder (created on the first run).

@@ -90,7 +90,7 @@ public abstract class ServerGameRound
             {
                 var assignment = new ServerMessageTileAssignment(tile);
 
-                if (p == player || p.ServerPlayer.IsSpectator)
+                if (p == player || p.ServerPlayer.SeesAllHands)
                     p.ServerPlayer.Send(assignment);
             }
         }
@@ -104,7 +104,7 @@ public abstract class ServerGameRound
 
         foreach (var p in Players)
         {
-            if (p == player || p.ServerPlayer.IsSpectator || open)
+            if (p == player || p.ServerPlayer.SeesAllHands || open)
                 p.ServerPlayer.Send(assignment);
 
             p.ServerPlayer.Send(draw);
@@ -146,7 +146,7 @@ public abstract class ServerGameRound
 
         foreach (var p in Players)
         {
-            if (p == player || p.ServerPlayer.IsSpectator || open)
+            if (p == player || p.ServerPlayer.SeesAllHands || open)
                 p.ServerPlayer.Send(assignment);
         }
     }

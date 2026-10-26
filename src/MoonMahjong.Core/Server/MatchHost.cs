@@ -16,12 +16,15 @@ public sealed class MatchHost
     private readonly AnimationTimings timings;
     private readonly List<MatchSeat> seats;
     private readonly List<IServerRoundPlayer> players = new();
+    private readonly IReadOnlyList<IServerRoundPlayer> spectators;
     private readonly bool[] ready;
     private readonly bool[] disconnected;
     private ServerGameRound? round;
     private Stage stage;
 
-    public MatchHost(GameStartInfo startInfo, ServerSettings settings, RandomClass rnd, IReadOnlyList<MatchSeat> seats, float time)
+    // spectators (crew play): watchers who get the game start with no seat (-1) and every round's public messages.
+    public MatchHost(GameStartInfo startInfo, ServerSettings settings, RandomClass rnd, IReadOnlyList<MatchSeat> seats, float time,
+        IReadOnlyList<IServerRoundPlayer>? spectators = null)
     {
         if (seats.Count != 4)
             throw new ArgumentException($"A Riichi game needs 4 seats, got {seats.Count}", nameof(seats));
@@ -45,6 +48,9 @@ public sealed class MatchHost
             seats[i].MessageSent += message => MessageReceived(seatIndex, message);
             player.Send(new ServerMessageGameStart(startInfo, settings, i));
         }
+        this.spectators = spectators ?? Array.Empty<IServerRoundPlayer>();
+        foreach (var spectator in this.spectators)
+            spectator.Send(new ServerMessageGameStart(startInfo, settings, -1));
 
         StartRound(time);
     }
@@ -135,7 +141,7 @@ public sealed class MatchHost
 
         var info = new RoundStartInfo(rnd.IntRange(1, 7) + rnd.IntRange(1, 7)); // two dice, as Vala RegularServer rolls them
         State.StartRound(info);
-        round = new RegularServerGameRound(info, settings, players, Array.Empty<IServerRoundPlayer>(), State.RoundWind,
+        round = new RegularServerGameRound(info, settings, players, spectators, State.RoundWind,
             State.DealerIndex, rnd, State.CanRiichi(), timings);
         round.DeclareRiichi += State.DeclareRiichi;
         round.Start(time);
@@ -164,7 +170,9 @@ public sealed class MatchHost
         }
 
         public bool IsSpectator => inner.IsSpectator;
-        public bool IsDisconnected => inner.IsDisconnected;
+        public bool SeesAllHands => inner.SeesAllHands;
+        // SeatDisconnected also covers the rounds after it (a seat itself may not know it was given up on).
+        public bool IsDisconnected => inner.IsDisconnected || host.disconnected[seat];
 
         public void Send(ServerMessage message)
         {

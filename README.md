@@ -1,7 +1,8 @@
 # Moon Sweeper Mahjong
 
 A mod for [Moon Sweepers](https://store.steampowered.com/app/5335510) that replaces the chess set in the moon-base
-lounge with a four-seat Japanese (Riichi) mahjong table: you against three computer players.
+lounge with a four-seat Japanese (Riichi) mahjong table for you and up to three crewmates, with computer players in any
+empty seat.
 
 - Full Riichi rules (a C# port of [OpenRiichi](https://github.com/FluffyStuff/OpenRiichi)'s engine): riichi, calls,
   dora and red fives, yaku and fu scoring, East-only or East + South games.
@@ -9,8 +10,8 @@ lounge with a four-seat Japanese (Riichi) mahjong table: you against three compu
   table's own sounds.
 - No turn timer for people. Stand up any time to pause the game; sit back down to carry on.
 - Round results with the winning hand in 3D, every yaku with its han, and everyone's points.
-
-**Crew play** (up to four crewmates at one table over the game's Steam session) is in progress.
+- Crew play over the game's own Steam session: crewmates with the mod sit down together, and the rest of the crew
+  with the mod can watch (hidden hands stay face down).
 
 ## Install
 
@@ -24,6 +25,18 @@ puts back any mod loader the game had before. If Windows says it protected your 
 anyway*.
 
 In the game, walk up to the lounge's table and choose **Play mahjong**.
+
+## Playing with your crew
+
+Everyone who wants to play installs the mod. Crewmates without it can still join your crew; they just see the chess
+table, and a chair they sit in gets a computer player.
+
+- The first person to sit down hosts the table: they choose East only or East + South and press **Deal**. Everyone
+  seated with the mod is dealt in, and computer players take the empty chairs. Anyone who arrives later watches.
+- Your seat is your chair. If you sit in someone else's, the table tells you where yours is.
+- Anyone standing up pauses the game for everyone until they sit back down.
+- If the host leaves the crew, the game ends after 3 minutes unless they come back. If another player leaves, their
+  seat is played for them after 3 minutes so the others can finish.
 
 Settings live in `BepInEx\config\itsrevela.moonsweepers.mahjong.cfg` in the game folder (created on the first run).
 
@@ -49,13 +62,14 @@ python -m scripts.package_release                                  # the release
 For development, `python -m scripts.loader install --dist .run/loader-dist` installs the loader alone
 ([docs/loader.md](docs/loader.md)); the release installer recognises and can uninstall that too.
 
-Tests: `dotnet test MoonMahjong.sln` (rules engine, table layout, presentation) and `python -m pytest tests`
+Tests: `dotnet test MoonMahjong.sln` (rules engine, table layout, presentation, crew play) and `python -m pytest tests`
 (asset pipeline, loader, installer and packaging).
 
 | Path | What |
 |---|---|
 | `src/MoonMahjong.Core` | The Riichi rules engine and match host, ported from Practice-Riichi-Mahjong; the wire format for crew play |
 | `src/MoonMahjong.Table` | The table layout (OpenRiichi's) and what the table and screens show |
+| `src/MoonMahjong.Net` | Crew play: each table's lobby, deal and game over the crew's Steam session (`docs/crew-play.md`) |
 | `src/MoonMahjong.Plugin` | The BepInEx plugin (`MoonMahjong.dll`) |
 | `installer/` | The release installer (PowerShell inside a .bat), its README and the third-party licences |
 | `scripts/`, `tests/` | Python tooling and the test suites |
