@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-26
+
+### Added
+- Chii chooser (requested, like the waits popup): when pressing Chii leaves more than one sequence possible, each is
+  shown as 3D tiles (the discard underlined) and clicking one makes that call; the button reads "Cancel chii" until
+  then. `ClientRoundState.ChiiOptions` / `ClientChooseChii`, with tests (the hand-tile way of choosing still works).
+
+### Fixed
+- Unity logged "RenderPass: Attachment 1 was created with 1 samples but 4 samples were requested" and "EndRenderPass:
+  Not inside a Renderpass" every frame a tile studio filmed (the round result's 3D hand, and the popups): its texture
+  asked for 4x MSAA, but the game's pipeline gives the camera's depth buffer one sample (reported; 2150 pairs while one
+  result was up). The studio now renders without MSAA at twice the resolution, and scaling it down smooths the edges.
+
 ## [0.1.2] - 2026-10-25
 
 Table aids from Mahjong Soul, and an updater.
