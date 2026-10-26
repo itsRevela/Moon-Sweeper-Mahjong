@@ -24,6 +24,8 @@ internal sealed class MahjongConfig
             new ConfigDescription("Seconds between dev screenshots once seated.", new AcceptableValueRange<float>(1f, 120f)));
         DevScreenshotCount = file.Bind("Developer", "DevScreenshotCount", 5,
             new ConfigDescription("Dev screenshots to take before stopping.", new AcceptableValueRange<int>(0, 100)));
+        DevTable = file.Bind("Developer", "DevTable", "",
+            "Testing aid (with DevAutoPlay): the station whose lounge table to sit at (north, south, east or west); empty for the nearest.");
         DevPauseTest = file.Bind("Developer", "DevPauseTest", false,
             "Testing aid (with DevAutoPlay): 20 s after sitting, stand up for 10 s, then sit back down in the same chair, to check that leaving the table pauses the game.");
     }
@@ -42,4 +44,5 @@ internal sealed class MahjongConfig
     public ConfigEntry<float> DevScreenshotSeconds { get; }
     public ConfigEntry<int> DevScreenshotCount { get; }
     public ConfigEntry<bool> DevPauseTest { get; }
+    public ConfigEntry<string> DevTable { get; }
 }

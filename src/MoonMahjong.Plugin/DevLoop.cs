@@ -128,14 +128,18 @@ public sealed class DevLoop : MonoBehaviour
         stageTime = now;
     }
 
+    // The nearest table, or the one in [Developer] DevTable's station.
     private static MoonLoungeSpot SitAtNearestTable()
     {
         var player = MoonLoungePlayer.Local ?? throw new InvalidOperationException("no local lounge player");
         var at = player.transform.position;
+        var station = Plugin.Settings.DevTable.Value.Trim();
         MahjongTable? nearest = null;
         foreach (var lounge in MoonGameLounge.all)
         {
             var table = lounge.GetComponentInChildren<MahjongTable>();
+            if (station.Length > 0 && lounge.Key != station)
+                continue;
             if (table != null && (nearest == null ||
                                   Vector3.Distance(at, table.transform.position) < Vector3.Distance(at, nearest.transform.position)))
                 nearest = table;

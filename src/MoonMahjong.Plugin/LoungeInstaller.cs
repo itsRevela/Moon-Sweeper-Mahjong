@@ -46,14 +46,17 @@ internal static class LoungeInstaller
         }
     }
 
+    // The game clones lounges from one that may already be set up: the clone then has a MahjongTable (copied, with none
+    // of its fields) and a fresh set of chess pieces from its own Awake, so set up whatever table is not set up yet.
     [HarmonyPatch(typeof(MoonChessTable), nameof(MoonChessTable.Awake))]
     [HarmonyPostfix]
     private static void InstallTable(MoonChessTable __instance)
     {
-        if (__instance.GetComponent<MahjongTable>() != null)
-            return;
-        var table = __instance.gameObject.AddComponent<MahjongTable>();
-        table.Install(__instance);
+        var table = __instance.GetComponent<MahjongTable>();
+        if (table == null)
+            table = __instance.gameObject.AddComponent<MahjongTable>();
+        if (!table.Installed)
+            table.Install(__instance);
     }
 
     private static bool IsMahjong(MoonChessTable chess) => chess.GetComponent<MahjongTable>() != null;

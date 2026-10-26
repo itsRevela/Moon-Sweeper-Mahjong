@@ -23,6 +23,8 @@ public sealed class MahjongTable : MonoBehaviour
     private const float TableTop = 0.761f;
     private const uint LoungeRenderingLayer = 2; // MoonGameLounge.Awake sets this on every renderer it owns
     private const string TableMeshName = "Chess Table";
+    private const string TableTopName = "Mahjong table top";
+    private const string SurfaceName = "Mahjong surface";
     // [Developer] DevAutoPlay deals by itself this long after sitting, leaving the start plate up for a dev screenshot.
     private const float DevDealDelay = 6f;
     // Errors a table recovers from (TableSession.Recover) before it turns itself off for the rest of the session.
@@ -58,17 +60,36 @@ public sealed class MahjongTable : MonoBehaviour
     [HideFromIl2Cpp]
     internal IReadOnlyList<MoonLoungeSpot> Seats => seats;
 
+    // Set up by Install. A lounge the game clones from one already set up has this component and copies of our objects,
+    // but none of this component's fields, so it is not set up yet.
+    internal bool Installed => surface != null;
+
     internal void Install(MoonChessTable chessTable)
     {
+        RemoveCopies();
         HideChess();
         var tableRenderer = FindTableRenderer();
         assets ??= LoadAssets(tableRenderer);
 
         var feltTop = BuildTableTop(tableRenderer);
-        surface = new GameObject("Mahjong surface").transform;
+        surface = new GameObject(SurfaceName).transform;
         surface.SetParent(transform, false);
         surface.localPosition = new Vector3(0f, feltTop, 0f);
         BuildConsole();
+        Plugin.Logger.LogInfo($"Mahjong table set up in '{transform.parent?.name}' at {transform.position}");
+    }
+
+    // A cloned lounge's copies of our table top and surface (built again by Install, from this table's own mesh).
+    private void RemoveCopies()
+    {
+        foreach (var copyName in new[] { TableTopName, SurfaceName })
+        {
+            var copy = transform.Find(copyName);
+            if (copy == null)
+                continue;
+            copy.gameObject.SetActive(false);
+            Destroy(copy.gameObject);
+        }
     }
 
     internal void SeatsChanged()
@@ -107,6 +128,9 @@ public sealed class MahjongTable : MonoBehaviour
             return;
         try
         {
+            // However this component got here (a cloned lounge, say), it draws nothing until it is set up.
+            if (!Installed)
+                Install(GetComponent<MoonChessTable>() ?? throw new InvalidOperationException($"'{name}' has no chess table to replace"));
             if (EnsureSession())
                 Step();
         }
@@ -394,7 +418,7 @@ public sealed class MahjongTable : MonoBehaviour
         var side = Mathf.Min(bounds.size.x, bounds.size.z);
         Plugin.Logger.LogInfo($"Chess table mesh bounds {bounds.center} size {bounds.size}; table top side {side:F3}");
 
-        var shell = new GameObject("Mahjong table top").transform;
+        var shell = new GameObject(TableTopName).transform;
         shell.SetParent(transform, false);
         shell.localPosition = new Vector3(0f, bounds.max.y, 0f);
         shell.localScale = Vector3.one * side;
