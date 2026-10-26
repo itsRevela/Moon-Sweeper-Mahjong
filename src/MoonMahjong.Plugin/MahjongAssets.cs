@@ -33,7 +33,9 @@ internal sealed class MahjongAssets
 
     private MahjongAssets(string directory, Material template, float scale)
     {
-        this.template = template;
+        // A copy of our own: the assets outlive the table they were loaded from, and joining another crew reloads the
+        // world and destroys that table's material, which broke the riichi stick material made later (seen in-game).
+        this.template = new Material(template) { name = "MoonMahjong template", hideFlags = KeepLoaded };
         var proportions = TableLayout.TileSize;
         TileSize = new Vector3(proportions.X, proportions.Y, proportions.Z) * (RealTileWidth * scale);
         TileMesh = LoadMesh(Path.Combine(directory, "tile_mesh.json"), "tile", TileSize);
