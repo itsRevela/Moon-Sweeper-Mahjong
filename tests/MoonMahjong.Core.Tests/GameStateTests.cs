@@ -190,6 +190,62 @@ public sealed class GameStateTests
         Assert.Equal(StartingScore - 1000 + 3000, state.GetPlayer(1).Points);
     }
 
+    // A riichi deposit leaves the player's points as it goes down, so a round's change is only what the round itself
+    // paid (requested: a four-riichi draw showed -1,000 for everyone).
+    [Fact]
+    public void DeclareRiichi_TakesTheDepositFromTheShownPointsAtOnce()
+    {
+        var state = NewGame();
+        state.DeclareRiichi(1);
+
+        Assert.Equal(StartingScore - 1000, state.ShownPoints(1));
+    }
+
+    [Fact]
+    public void AfterTheRound_ShownPointsAreThePoints_TheDepositTakenOnce()
+    {
+        var state = NewGame();
+        state.DeclareRiichi(1);
+        state.RoundFinished(EmptyWallDraw(new[] { 1 }));
+
+        Assert.Equal(StartingScore - 1000 + 3000, state.ShownPoints(1));
+    }
+
+    [Fact]
+    public void FourRiichiDraw_ChangesNobody()
+    {
+        var state = NewGame();
+        for (var i = 0; i < 4; i++)
+            state.DeclareRiichi(i);
+        var score = state.RoundFinished(RoundFinishResult.Draw(Array.Empty<int>(), Array.Empty<int>(), GameDrawType.FourRiichi));
+
+        Assert.Equal(new[] { 0, 0, 0, 0 }, score!.Players.Select(p => p.Change).ToArray());
+    }
+
+    [Fact]
+    public void RiichiWinner_ChangeIsTheWinAndEveryStickOnTheTable()
+    {
+        var state = NewGame();
+        state.DeclareRiichi(2);
+        state.DeclareRiichi(3);
+        var result = Ron(winner: 2, loser: 0);
+        var score = state.RoundFinished(result);
+
+        Assert.Equal(new[] { -result.Scores[0].TotalPoints, 0, result.Scores[0].TotalPoints + 2000, 0 },
+            score!.Players.Select(p => p.Change).ToArray());
+    }
+
+    [Fact]
+    public void RonOnTheRiichiDiscard_ChangeIsJustTheRonPayment()
+    {
+        var state = NewGame();
+        state.DeclareRiichi(1);
+        var result = Ron(winner: 2, loser: 1, riichiReturnIndex: 1);
+        var score = state.RoundFinished(result);
+
+        Assert.Equal(-result.Scores[0].TotalPoints, score!.Players[1].Change);
+    }
+
     [Fact]
     public void RiichiSticks_CarryOverDraws_AndGoToTheNextWinner()
     {

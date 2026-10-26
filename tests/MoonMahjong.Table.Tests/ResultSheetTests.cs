@@ -92,6 +92,18 @@ public sealed class ResultSheetTests
         Assert.Empty(sheet.Winners);
     }
 
+    // A riichi deposit left the player's points when it went down, so the result shows only what the round paid
+    // (requested: a four-riichi draw showed -1,000 for everyone).
+    [Fact]
+    public void FourRiichiDraw_ShowsNoChange()
+    {
+        var players = Names.Select((name, i) => new GameScorePlayer(name, i, (Wind)i, 24000, 0, -1000, deposit: 1000)).ToArray();
+        var sheet = ResultSheets.Build(RoundFinishResult.Draw(Array.Empty<int>(), Array.Empty<int>(), GameDrawType.FourRiichi),
+            Array.Empty<WinnerSummary>(), players, Names, Wind.East, 1, 0, false);
+
+        Assert.Equal(new[] { "0", "0", "0", "0" }, sheet.Scores.Select(row => row.Change).ToArray());
+    }
+
     [Fact]
     public void Ranking_IsEmptyUntilTheGameIsOver()
     {

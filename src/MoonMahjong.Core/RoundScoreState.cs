@@ -44,7 +44,8 @@ public sealed class RoundScoreState
 
         Players = new GameScorePlayer[players.Length];
         for (var i = 0; i < players.Length; i++)
-            Players[i] = new GameScorePlayer(players[i].Name, players[i].Index, players[i].Wind, players[i].Points, players[i].Score, players[i].Transfer);
+            Players[i] = new GameScorePlayer(players[i].Name, players[i].Index, players[i].Wind, players[i].Points,
+                players[i].Score, players[i].Transfer, players[i].Deposit);
     }
 
     public RoundFinishResult Result { get; }

@@ -186,7 +186,7 @@ internal sealed class MatchController : IDisposable
 
         // The round, counters and scores go on the centre console (riichi shows as the stick lying there).
         var roundState = round?.RoundState;
-        var seats = Enumerable.Range(0, 4).Select(i => new ConsoleSeat(game.GetPlayer(i).Wind, game.GetPlayer(i).Points)).ToArray();
+        var seats = Enumerable.Range(0, 4).Select(i => new ConsoleSeat(game.GetPlayer(i).Wind, game.ShownPoints(i))).ToArray();
         var current = roundState == null || game.RoundIsFinished ? -1 : roundState.CurrentPlayer.Index;
         state.Console = new ConsoleReadout(game.RoundWind, game.CurrentRound, game.Renchan, game.RiichiCount,
             roundState?.TilesRemaining ?? 0, seats, current, ObserverSeat);

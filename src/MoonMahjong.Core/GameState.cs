@@ -41,7 +41,10 @@ public sealed class GameState
                 RiichiCount = 0;
 
             for (var i = 0; i < players.Length; i++)
+            {
                 players[i].Transfer = 0;
+                players[i].Deposit = 0;
+            }
 
             if (HanchanIsFinished)
             {
@@ -103,6 +106,7 @@ public sealed class GameState
             if (result.RiichiReturnIndex != -1 && ron)
             {
                 players[result.RiichiReturnIndex].Transfer += 1000;
+                players[result.RiichiReturnIndex].Deposit = 0;
                 RiichiCount--;
             }
 
@@ -254,8 +258,14 @@ public sealed class GameState
             return;
 
         players[playerIndex].Transfer -= 1000;
+        players[playerIndex].Deposit = 1000;
         RiichiCount++;
     }
+
+    // Not in the Vala: a player's points as the table shows them. A riichi deposit leaves them as it goes down, not
+    // when the round ends (once it has ended, Points already include it).
+    public int ShownPoints(int index) =>
+        RoundIsFinished ? players[index].Points : players[index].Points - players[index].Deposit;
 
     public GameScorePlayer GetPlayer(int index)
     {

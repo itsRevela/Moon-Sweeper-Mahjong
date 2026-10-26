@@ -48,7 +48,7 @@ public static class ResultSheets
 
         var sections = winners.Select(w => Section(w, names)).ToList();
         var scores = players.Select(p => new ScoreRow(names[p.Index], TableText.Points(p.Points),
-            p.Transfer == 0 ? "0" : TableText.SignedPoints(p.Transfer), Math.Sign(p.Transfer))).ToList();
+            p.Change == 0 ? "0" : TableText.SignedPoints(p.Change), Math.Sign(p.Change))).ToList();
         var ranking = gameOver
             ? players.OrderByDescending(p => p.Score).Select((p, i) => new RankRow((i + 1).ToString(), names[p.Index], TableText.SignedPoints(p.Score))).ToList()
             : new List<RankRow>();
