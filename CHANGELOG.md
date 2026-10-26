@@ -5,6 +5,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-26
+
+### Added
+- A round's end now plays out on the table before the result (requested): the call (RON, TSUMO, NAGASHI MANGAN, or
+  DRAW with which draw) rises as a large glowing cyan hologram high above each winner's side, or the table's centre,
+  facing the viewer, flickering and lighting the felt, with a dark halo so it reads against both the felt and the
+  lounge; the winning tile glows gold, bobs and is lit; the winners' hands (or the ready hands, on a draw) open as
+  before; and the result screen follows 4.2 s later. `Table.Presentation.RoundEndCall` decides what is called, with
+  tests.
+
+### Fixed
+- 0.1.4 logged `[Error :Il2CppInterop] Assembly MoonMahjong.Net.dll is not registered in il2cpp` at every launch. The
+  table component subscribed to the crew session's reset signal with a lambda, and Il2CppInterop tried to register the
+  compiler-made closure along with the component. Nothing broke, but the line looked like a failure to anyone reading
+  the log. The handler is now an ordinary method hidden from il2cpp (`MahjongTable.OnResetSignal`).
+- The **Reset table** button's label was hard to read near the end of a hold: white text on pale gold. The fill is now
+  a deeper gold, and the label turns dark once the fill is under it.
+
 ## [0.1.4] - 2026-10-26
 
 ### Added
