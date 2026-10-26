@@ -5,6 +5,7 @@ using System.Text.Json;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using MoonMahjong.Core;
 using MoonMahjong.Table.Layout;
+using MoonMahjong.Table.Presentation;
 using UnityEngine;
 
 namespace MoonMahjong.Plugin;
@@ -113,7 +114,13 @@ internal sealed class MahjongAssets
                 throw new InvalidDataException($"{path} has {bytes.Length} bytes, not {info.frames} frames of {info.channels} channels");
             var samples = new float[bytes.Length / sizeof(float)];
             Buffer.BlockCopy(bytes, 0, samples, 0, bytes.Length);
-            var clip = AudioClip.Create("MoonMahjong " + name, info.frames, info.channels, info.rate, false);
+            var channels = info.channels;
+            if (sound.IsSpoken()) // heard over a suit radio (requested), in mono
+            {
+                samples = RadioVoice.Apply(samples, channels, info.rate);
+                channels = 1;
+            }
+            var clip = AudioClip.Create("MoonMahjong " + name, samples.Length / channels, channels, info.rate, false);
             clip.hideFlags = KeepLoaded;
             if (!clip.SetData(new Il2CppStructArray<float>(samples), 0))
                 throw new InvalidDataException($"Unity rejected the samples of {path}");
