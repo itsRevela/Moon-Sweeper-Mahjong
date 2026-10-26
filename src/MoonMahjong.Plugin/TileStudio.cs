@@ -16,7 +16,10 @@ internal sealed class TileStudio : IDisposable
     private const float Pitch = 16f; // degrees the camera looks down
     private const float RowGap = 0.45f; // tile widths between stacked rows
     private const float Margin = 0.18f; // tile widths of tray around the tiles
-    private const int PixelsPerTileWidth = 110;
+    // Filmed at about twice the size it is shown, so scaling it down smooths the edges: MSAA can't be used, as the game's
+    // pipeline gives a camera's depth buffer one sample ("RenderPass: Attachment 1 was created with 1 samples but 4
+    // samples were requested" every frame a studio filmed).
+    private const int PixelsPerTileWidth = 220;
     private const int MaxTextureWidth = 4096;
     // The key light stands about 1.2 m off, above, in front and to the left of the tiles: URP point lights fall off with
     // the square of the distance, and at a few centimetres (the first try) they washed the faces out.
@@ -46,7 +49,7 @@ internal sealed class TileStudio : IDisposable
         camera.backgroundColor = tray;
         camera.nearClipPlane = 0.01f;
         camera.farClipPlane = 2f;
-        camera.allowMSAA = true;
+        camera.allowMSAA = false;
         camera.enabled = false;
 
         var key = new GameObject("Studio light").AddComponent<Light>();
@@ -163,7 +166,7 @@ internal sealed class TileStudio : IDisposable
             texture = new RenderTexture(pixelsWide, pixelsHigh, 24, RenderTextureFormat.ARGB32)
             {
                 name = "MoonMahjong tile studio",
-                antiAliasing = 4,
+                antiAliasing = 1,
                 hideFlags = HideFlags.DontUnloadUnusedAsset,
             };
         }
