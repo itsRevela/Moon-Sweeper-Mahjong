@@ -6,19 +6,22 @@
 # developer installer, scripts/loader.py), and uninstall removes exactly that plus what BepInEx made while running.
 # A BepInEx it did not install is moved to a backup folder (only with consent) and put back on uninstall.
 #
-# Run with no arguments for the menu. Switches (for automation and tests):
-#   -Action Menu|Install|Uninstall|Status   -GamePath <dir>   -SteamPath <dir>   -Payload <dir>
+# Run with no arguments for the menu; "Update Moon Sweeper Mahjong.bat" runs it with -Action Update, which reinstalls
+# from the latest GitHub release. Switches (for automation and tests):
+#   -Action Menu|Install|Uninstall|Status|Update   -GamePath <dir>   -SteamPath <dir>   -Payload <dir>
 #   -Yes (answer yes to every question)     -Settings Ask|Keep|Remove (uninstall: keep the mod's settings?)
 #   -GameProcess <name> (the process that must not be running; default MoonSweepers)
+#   -ReleaseApi <url> (update: where the latest release is described; default GitHub's API for this repository)
 # Exit codes: 0 done, 1 refused or failed, 2 game not found.
 param(
-    [ValidateSet('Menu', 'Install', 'Uninstall', 'Status')] [string]$Action = 'Menu',
+    [ValidateSet('Menu', 'Install', 'Uninstall', 'Status', 'Update')] [string]$Action = 'Menu',
     [string]$GamePath,
     [string]$SteamPath,
     [string]$Payload,
     [switch]$Yes,
     [ValidateSet('Ask', 'Keep', 'Remove')] [string]$Settings = 'Ask',
-    [string]$GameProcess = 'MoonSweepers'   # the game's process name (tests use another, so a running game can't interfere)
+    [string]$GameProcess = 'MoonSweepers',   # the game's process name (tests use another, so a running game can't interfere)
+    [string]$ReleaseApi = 'https://api.github.com/repos/itsRevela/Moon-Sweeper-Mahjong/releases/latest'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -285,6 +288,69 @@ function Uninstall-Mod([string]$game) {
     Write-Host 'Uninstalled Moon Sweeper Mahjong.'
 }
 
+# --- Update -----------------------------------------------------------------------------------------------------
+
+# A version from a manifest or a release tag ("v0.1.2"); anything unreadable (a developer build) counts as oldest.
+function Get-Version([string]$text) {
+    $version = $null
+    if ([version]::TryParse(($text -replace '^v', ''), [ref]$version)) { return $version }
+    return [version]'0.0'
+}
+
+# Reinstalls from the latest GitHub release when it is newer, keeping the mod's settings. The download must match the
+# SHA-256 GitHub publishes for it, and the new release's own installer does the work (so updates bring its fixes).
+function Update-Mod([string]$game) {
+    $manifest = Read-Manifest $game
+    if (-not $manifest) { Fail 'Moon Sweeper Mahjong is not installed in this game folder. Run "Install Moon Sweeper Mahjong.bat" first.' }
+    $installed = Get-Version (Get-Property $manifest 'version')
+    Write-Host "Installed: Moon Sweeper Mahjong $installed. Asking GitHub for the latest release..."
+
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $headers = @{ 'User-Agent' = 'MoonSweeperMahjong-updater'; 'Accept' = 'application/vnd.github+json' }
+    try { $release = Invoke-RestMethod -Uri $ReleaseApi -Headers $headers -UseBasicParsing -TimeoutSec 30 }
+    catch { Fail "Could not ask GitHub for the latest release: $($_.Exception.Message)" }
+
+    $latest = Get-Version ([string](Get-Property $release 'tag_name'))
+    if ($latest -le $installed) { Write-Host "Moon Sweeper Mahjong is up to date ($installed)."; return }
+    $asset = @(@(Get-Property $release 'assets') | Where-Object { $_ -and $_.name -match '^MoonSweeperMahjong-v[0-9.]+\.zip$' }) | Select-Object -First 1
+    if (-not $asset) { Fail "The latest release ($latest) has no MoonSweeperMahjong zip to download." }
+    if (-not ([string](Get-Property $asset 'digest') -match '^sha256:([0-9a-fA-F]{64})$')) {
+        Fail "GitHub gives no SHA-256 for $($asset.name) to check the download against, so it was not installed."
+    }
+    $expected = $Matches[1]
+    Assert-GameClosed
+    Assert-Writable $game
+
+    $work = Join-Path ([IO.Path]::GetTempPath()) ('MoonSweeperMahjong-update-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $work | Out-Null
+    try {
+        $zip = Join-Path $work $asset.name
+        Write-Host "Downloading $($asset.name)..."
+        try { Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -Headers @{ 'User-Agent' = $headers['User-Agent'] } -UseBasicParsing -TimeoutSec 600 }
+        catch { Fail "Could not download $($asset.name) from GitHub: $($_.Exception.Message)" }
+        if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $expected) {
+            Fail "The download does not match the SHA-256 GitHub gives for it, so it was not installed. Try again later."
+        }
+        Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $work 'release')
+        $bat = Get-ChildItem -LiteralPath (Join-Path $work 'release') -Recurse -File -Filter 'Install Moon Sweeper Mahjong.bat' | Select-Object -First 1
+        $payload = if ($bat) { Join-Path $bat.DirectoryName 'payload' } else { $null }
+        if (-not $bat -or -not (Test-Path -LiteralPath $payload -PathType Container)) { Fail "The downloaded release has no installer and payload; nothing was changed." }
+
+        # The .bat is also a PowerShell script (its batch part is a block comment there): run it as one.
+        $installer = Join-Path $work 'installer.ps1'
+        Copy-Item -LiteralPath $bat.FullName -Destination $installer
+        $common = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $installer, '-GamePath', $game, '-GameProcess', $GameProcess)
+        & powershell @common -Action Uninstall -Settings Keep
+        if ($LASTEXITCODE -ne 0) { Fail "The $latest installer could not remove $installed (exit $LASTEXITCODE); nothing else was changed." }
+        & powershell @common -Action Install -Payload $payload
+        if ($LASTEXITCODE -ne 0) { Fail "Installing $latest failed (exit $LASTEXITCODE). Download it from the releases page and run its installer." }
+        Write-Host "Updated Moon Sweeper Mahjong from $installed to $latest."
+    }
+    finally {
+        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # --- Menu -------------------------------------------------------------------------------------------------------
 
 function Show-Menu([string]$game) {
@@ -310,6 +376,7 @@ try {
         'Status' { Show-Status $game }
         'Install' { Install-Mod $game }
         'Uninstall' { Uninstall-Mod $game }
+        'Update' { Update-Mod $game }
         default { Show-Menu $game }
     }
     exit 0

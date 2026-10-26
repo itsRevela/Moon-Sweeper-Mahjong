@@ -2,6 +2,7 @@
 
 The zip holds one folder with:
   Install Moon Sweeper Mahjong.bat  installer/header.bat + installer/MoonSweeperMahjong.ps1, stamped with the version
+  Update Moon Sweeper Mahjong.bat   the same, run with -Action Update (reinstalls from the latest GitHub release)
   payload/                          what the installer copies into the game folder: the patched BepInEx loader
                                     (scripts.loader stage output) plus BepInEx/plugins/MoonMahjong (the plugin's
                                     MoonMahjong*.dll/.pdb and build/assets), as `dotnet build -p:DeployToGame=true` lays it out
@@ -26,6 +27,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "installer"
 BAT_NAME = "Install Moon Sweeper Mahjong.bat"
+UPDATER_NAME = "Update Moon Sweeper Mahjong.bat"
+ARGUMENTS = " %*\""  # where installer/header.bat hands the .bat's arguments to the script
 PLUGIN_DIR = "BepInEx/plugins/MoonMahjong"
 REQUIRED_PLUGIN_FILES = ("MoonMahjong.dll", "MoonMahjong.Core.dll", "MoonMahjong.Table.dll", "MoonMahjong.Net.dll")
 VERSION_LINE = "$ModVersion = '0.0.0-dev'"
@@ -42,13 +45,19 @@ def plugin_version(source: Path = ROOT / "src" / "MoonMahjong.Plugin" / "Plugin.
     return match.group(1)
 
 
-def build_bat(version: str) -> bytes:
-    """The installer: a batch header that hands the rest of the file to PowerShell, with Windows line endings."""
+def build_bat(version: str, action: str | None = None) -> bytes:
+    """The installer: a batch header that hands the rest of the file to PowerShell, with Windows line endings. With
+    `action`, the .bat runs that action (the updater is the same script run with -Action Update)."""
     script = (INSTALLER / "MoonSweeperMahjong.ps1").read_text(encoding="utf-8")
     if script.count(VERSION_LINE) != 1:
         raise PackageError(f"installer/MoonSweeperMahjong.ps1 must contain exactly one {VERSION_LINE!r}")
     script = script.replace(VERSION_LINE, f"$ModVersion = '{version}'")
-    text = (INSTALLER / "header.bat").read_text(encoding="utf-8") + script
+    header = (INSTALLER / "header.bat").read_text(encoding="utf-8")
+    if action:
+        if header.count(ARGUMENTS) != 1:
+            raise PackageError(f"installer/header.bat must pass its arguments exactly once ({ARGUMENTS!r})")
+        header = header.replace(ARGUMENTS, f" -Action {action}{ARGUMENTS}")
+    text = header + script
     if not text.isascii():
         raise PackageError("the installer must be plain ASCII (cmd reads the .bat in the console's code page)")
     return "\r\n".join(text.replace("\r\n", "\n").split("\n")).encode("ascii")
@@ -88,6 +97,7 @@ def package(loader_dist: Path, plugin_bin: Path, assets: Path, out: Path, versio
     shutil.copytree(assets, plugin / "assets")
 
     (stage / BAT_NAME).write_bytes(build_bat(version))
+    (stage / UPDATER_NAME).write_bytes(build_bat(version, "Update"))
     shutil.copy2(ROOT / "LICENSE", stage / "LICENSE.txt")
     (stage / "THIRD-PARTY-NOTICES.txt").write_text(notices(), encoding="utf-8")
     readme = (INSTALLER / "README.txt").read_text(encoding="utf-8").replace("{version}", version)

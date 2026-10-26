@@ -112,3 +112,36 @@ def test_missing_crew_play_library_is_named(inputs):
     (inputs["plugin"] / "MoonMahjong.Net.dll").unlink()
     with pytest.raises(package_release.PackageError, match="MoonMahjong.Net.dll"):
         package(inputs)
+
+
+UPDATER = "MoonSweeperMahjong-v1.2.3/Update Moon Sweeper Mahjong.bat"
+
+
+def test_zip_holds_the_updater(inputs):
+    assert UPDATER in names(package(inputs))
+
+
+def test_updater_runs_the_update_action(inputs):
+    with zipfile.ZipFile(package(inputs)) as z:
+        bat = z.read(UPDATER).decode("ascii")
+    assert "-Action Update %*" in bat
+
+
+def test_updater_uses_windows_line_endings(inputs):
+    with zipfile.ZipFile(package(inputs)) as z:
+        bat = z.read(UPDATER)
+    assert b"\r\n" in bat and b"\n" not in bat.replace(b"\r\n", b"")
+
+
+def test_packaged_updater_runs_and_needs_an_install(inputs, tmp_path):
+    with zipfile.ZipFile(package(inputs)) as z:
+        z.extractall(tmp_path / "release")
+    game = tmp_path / "Game"
+    game.mkdir()
+    (game / "MoonSweepers.exe").write_bytes(b"exe")
+    bat = tmp_path / "release" / UPDATER
+
+    result = subprocess.run(["cmd", "/c", str(bat), "-GamePath", str(game), "-ReleaseApi", "http://127.0.0.1:9/latest.json"],
+                            capture_output=True, text=True, timeout=120, env={**os.environ, "MSM_NOPAUSE": "1"})
+    assert result.returncode == 1
+    assert "not installed" in result.stdout

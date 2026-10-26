@@ -24,6 +24,9 @@ Run it again to uninstall or reinstall: it removes exactly what it installed, as
 puts back any mod loader the game had before. If Windows says it protected your PC, choose *More info*, then *Run
 anyway*.
 
+To update later, close the game and double-click **Update Moon Sweeper Mahjong.bat** (from 0.1.2 on): it fetches the
+latest release from GitHub, checks it, and reinstalls with your settings kept.
+
 In the game, walk up to the lounge's table and choose **Play mahjong**.
 
 ## Playing with your crew

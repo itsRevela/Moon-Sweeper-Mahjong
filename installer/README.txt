@@ -12,6 +12,11 @@ Install
   If Windows says it protected your PC, choose "More info", then "Run anyway".
   If it says it can't change the game folder, right-click the .bat and choose "Run as administrator".
 
+Update
+  Close Moon Sweepers and double-click "Update Moon Sweeper Mahjong.bat". It asks GitHub for the latest release,
+  checks the download against the SHA-256 GitHub gives for it, and reinstalls with your settings kept. If you
+  already have the latest version, it says so and changes nothing.
+
 Uninstall or reinstall
   Run the same .bat again: it offers to uninstall or reinstall. It removes exactly what it installed and asks
   whether to keep your mahjong settings. If the game had another mod loader before, it is put back.
