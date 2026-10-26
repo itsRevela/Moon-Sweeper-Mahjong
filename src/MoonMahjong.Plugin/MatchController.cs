@@ -28,6 +28,8 @@ internal sealed class MatchController : IDisposable
     private readonly ClientGame client;
     private readonly Transform surface;
     private readonly MahjongAssets assets;
+    // The spoken calls' own source (see PlaySound).
+    private readonly AudioSource voice;
     private Vector3 observerDirection;
     private AnimationTimings timings = AnimationTimings.Default(ServerSettings.Default);
     private readonly float handAreaRise;
@@ -51,6 +53,10 @@ internal sealed class MatchController : IDisposable
     {
         this.handAreaRise = handAreaRise;
         this.surface = surface;
+        voice = surface.gameObject.AddComponent<AudioSource>();
+        MoonOneShot.Configure(voice, SoundVolume, HearingDistance);
+        voice.playOnAwake = false;
+        voice.loop = false;
         this.assets = assets;
         this.game = game;
         this.observerDirection = observerDirection;
@@ -122,7 +128,7 @@ internal sealed class MatchController : IDisposable
             HideRoundEnd();
         hologram?.Update(time, viewer);
         foreach (var cue in layout.TakeSounds(time))
-            MoonOneShot.Play(assets.Sound(cue.Sound), new Il2CppSystem.Nullable<Vector3>(surface.position), SoundVolume, 1f, HearingDistance);
+            PlaySound(cue.Sound);
 
         if (!described && time - roundCreatedAt > 3f)
         {
@@ -227,6 +233,8 @@ internal sealed class MatchController : IDisposable
 
     public void Dispose()
     {
+        if (voice != null)
+            UnityEngine.Object.Destroy(voice);
         hologram?.Dispose();
         view?.Dispose();
         view = null;
@@ -289,6 +297,18 @@ internal sealed class MatchController : IDisposable
             }
             timer = v;
         };
+    }
+
+    // Tile noises go through the game's shared one-shot pool. When the base is busy that pool is full and takes over a
+    // source that is still playing, which cut "Riichi" off mid-word and could silence a ron (requested), so the spoken
+    // calls play on the table's own source instead (one-shots there overlap rather than cut each other off).
+    private void PlaySound(TableSound sound)
+    {
+        var clip = assets.Sound(sound);
+        if (!sound.IsSpoken())
+            MoonOneShot.Play(clip, new Il2CppSystem.Nullable<Vector3>(surface.position), SoundVolume, 1f, HearingDistance);
+        else if (MoonOneShot.Hears(surface.position, HearingDistance))
+            voice.PlayOneShot(clip);
     }
 
     private void ShowRoundEnd(RoundEndCall call)

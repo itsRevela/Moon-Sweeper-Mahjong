@@ -122,4 +122,23 @@ public sealed class SoundTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => NewTable().TakeSounds(float.NaN));
     }
+
+    // The spoken calls play on a voice of the table's own, which the game's busy shared sound pool can't take over
+    // (requested: "Riichi" was cut off mid-word, and a ron went unheard).
+    [Theory]
+    [InlineData(TableSound.Riichi)]
+    [InlineData(TableSound.Chii)]
+    [InlineData(TableSound.Pon)]
+    [InlineData(TableSound.Kan)]
+    [InlineData(TableSound.Ron)]
+    [InlineData(TableSound.Tsumo)]
+    public void Calls_AreSpoken(TableSound sound) => Assert.True(sound.IsSpoken());
+
+    [Theory]
+    [InlineData(TableSound.Slide)]
+    [InlineData(TableSound.Draw)]
+    [InlineData(TableSound.Discard)]
+    [InlineData(TableSound.Flip)]
+    [InlineData(TableSound.Reveal)]
+    public void TileNoises_AreNotSpoken(TableSound sound) => Assert.False(sound.IsSpoken());
 }
