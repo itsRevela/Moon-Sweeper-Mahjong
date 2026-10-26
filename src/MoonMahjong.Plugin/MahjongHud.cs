@@ -37,6 +37,8 @@ internal sealed class MahjongHud : IDisposable
     private readonly TMP_Text statusText;
     private readonly List<(Button Button, Func<HudState, bool> Visible)> actionButtons = new();
     private HudLobby? shownLobby;
+    private Button riichiButton = null!;
+    private bool riichiCancels;
 
     public HudCallbacks Callbacks { get; } = new();
 
@@ -71,7 +73,7 @@ internal sealed class MahjongHud : IDisposable
         AddAction("Chii", s => s.Chii, () => Callbacks.Chii?.Invoke());
         AddAction("Pon", s => s.Pon, () => Callbacks.Pon?.Invoke());
         AddAction("Kan", s => s.Kan, () => Callbacks.Kan?.Invoke());
-        AddAction("Riichi", s => s.Riichi, () => Callbacks.Riichi?.Invoke());
+        riichiButton = AddAction("Riichi", s => s.Riichi, () => Callbacks.Riichi?.Invoke());
         AddAction("Tsumo", s => s.Tsumo, () => Callbacks.Tsumo?.Invoke());
         AddAction("Ron", s => s.Ron, () => Callbacks.Ron?.Invoke());
         AddAction("Skip", s => s.Continue, () => Callbacks.Continue?.Invoke());
@@ -108,6 +110,13 @@ internal sealed class MahjongHud : IDisposable
         }
 
         statusText.text = playing ? state.Status : "";
+
+        // After Riichi, until the discard is chosen, the same button takes it back (ClientRoundState toggles).
+        if (state.ChoosingRiichi != riichiCancels)
+        {
+            riichiCancels = state.ChoosingRiichi;
+            MoonWorkshopKit.SetButton(riichiButton, riichiCancels ? "Cancel riichi" : "Riichi", true);
+        }
     }
 
     public void Dispose()
@@ -130,10 +139,11 @@ internal sealed class MahjongHud : IDisposable
         eastOnly.interactable = eastSouth.interactable = dealButton.interactable = lobby.IsHost;
     }
 
-    private void AddAction(string label, Func<HudState, bool> visible, Action click)
+    private Button AddAction(string label, Func<HudState, bool> visible, Action click)
     {
         var button = kit.Button(stage, label, "", 0f, ButtonRowY, ButtonWidth, ButtonHeight, (Il2CppSystem.Action)click, true);
         actionButtons.Add((button, visible));
+        return button;
     }
 }
 
@@ -159,6 +169,7 @@ internal sealed class HudState
 {
     public ConsoleReadout? Console; // drawn on the table by CenterDisplay, not on the screen
     public bool Chii, Pon, Kan, Riichi, Tsumo, Ron, Continue, VoidHand;
+    public bool ChoosingRiichi; // Riichi pressed: the next discard declares it (the button now cancels)
     public string Status = "";
     public ResultSheet? Result; // between rounds
     public IReadOnlyList<IReadOnlyList<PlacedHandTile>> WinningHands = Array.Empty<IReadOnlyList<PlacedHandTile>>();

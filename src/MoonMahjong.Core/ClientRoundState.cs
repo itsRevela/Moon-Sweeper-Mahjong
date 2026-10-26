@@ -387,6 +387,10 @@ public sealed class ClientRoundState
         }
     }
 
+    // Riichi was pressed and more than one discard keeps the hand ready: the next tile chosen declares it (a mod
+    // addition, so the HUD can show it; pressing Riichi again cancels).
+    public bool ChoosingRiichiDiscard => actionState is State.SelectRiichi or State.SelectOpenRiichi;
+
     public void ClientRiichi(bool open)
     {
         if (actionState == State.Turn)

@@ -93,13 +93,17 @@ internal sealed class MatchController : IDisposable
         if (AutoPlayDelay is { } delay && timer && time - timerStarted >= delay)
             AutoPlay();
 
-        HashSet<int>? lifted = null;
+        // Choosing a riichi discard: the tiles that keep the hand ready (the only ones that can be picked) stand raised.
+        HashSet<int>? lifted = round is { ChoosingRiichiDiscard: true } && groups != null
+            ? groups.SelectMany(g => g.SelectionTiles).Select(t => t.ID).ToHashSet()
+            : null;
         var hovered = pointer.HasValue ? view.TileUnder(pointer.Value, PickDistance) : null;
         var groupIndex = layout.GetTileSelectionGroup(hovered, time);
         if (groupIndex is { } index && groups != null && index < groups.Count)
         {
             var group = groups[index];
-            lifted = group.SelectionTiles.Concat(group.HighlightTiles).Select(t => t.ID).ToHashSet();
+            lifted ??= new HashSet<int>();
+            lifted.UnionWith(group.SelectionTiles.Concat(group.HighlightTiles).Select(t => t.ID));
             if (click)
                 round!.ClientTileSelected(group.SelectionTiles.FirstOrDefault(t => t.ID == hovered) ?? group.SelectionTiles[0]);
         }
@@ -172,6 +176,7 @@ internal sealed class MatchController : IDisposable
         state.Pon = pon;
         state.Kan = kan;
         state.Riichi = riichi;
+        state.ChoosingRiichi = round?.ChoosingRiichiDiscard ?? false;
         state.Tsumo = tsumo;
         state.Ron = ron;
         state.Continue = continueEnabled;
@@ -179,7 +184,8 @@ internal sealed class MatchController : IDisposable
         // A countdown only when there is a time limit (by default there is none for real players).
         var limited = timer && !settings.UnlimitedDecisionTime;
         var remaining = limited ? Math.Max(0f, timings.DecisionTime - (now - timerStarted)) : 0f;
-        state.Status = (limited ? $"{Mathf.CeilToInt(remaining)} s" : "") + (furiten ? "   furiten" : "");
+        state.Status = (state.ChoosingRiichi ? "Riichi: choose the tile to discard   " : "") +
+                       (limited ? $"{Mathf.CeilToInt(remaining)} s" : "") + (furiten ? "   furiten" : "");
 
         if (client.AwaitingScoreAcknowledgement && lastSheet != null)
         {
@@ -243,9 +249,20 @@ internal sealed class MatchController : IDisposable
         r.SetTimerState += v =>
         {
             if (v && !timer)
+            {
                 timerStarted = now;
+                if (!continueEnabled)
+                    LogTurn(r);
+            }
             timer = v;
         };
+    }
+
+    // One line per own turn, so a report like "riichi wasn't offered" can be checked against the hand.
+    private void LogTurn(ClientRoundState r)
+    {
+        var hand = string.Join(" ", r.RoundState.Self.Hand.OrderBy(t => t.TileType).Select(t => t.TileType));
+        Plugin.Logger.LogInfo($"Turn: riichi {(riichi ? "offered" : "not offered")}, tsumo {(tsumo ? "offered" : "no")}; hand {hand}");
     }
 
     // Each winner's hand (a nagashi mangan or a draw has none).
