@@ -1,0 +1,455 @@
+From dc0d621f869301f8d95473006388da3752eea016 Mon Sep 17 00:00:00 2001
+From: revela <rexmarek@gmail.com>
+Date: Sun, 25 Oct 2026 18:02:38 -0500
+Subject: [PATCH] Support Unity 6000.6 (metadata v108) native structs
+
+Il2CppAssembly gains moduleToken after token. Il2CppClass merges implementedInterfaces
+and interfaceOffsets into one Il2CppRuntimeInterfaceData table and moves events,
+properties and nestedTypes after typeHierarchy. ClassInjector builds the merged table
+for injected classes (dispatchable prefix with offsets, then the closure).
+---
+ .../Injection/ClassInjector.cs                | 102 +++++++--
+ .../Runtime/Il2CppStructs.cs                  |  11 +
+ .../Assembly/Assembly_108_0.cs                |  49 ++++
+ .../VersionSpecific/Class/Class_108_0.cs      | 209 ++++++++++++++++++
+ .../VersionSpecific/Class/Interfaces.cs       |   7 +
+ 5 files changed, 360 insertions(+), 18 deletions(-)
+ create mode 100644 Il2CppInterop.Runtime/Runtime/VersionSpecific/Assembly/Assembly_108_0.cs
+ create mode 100644 Il2CppInterop.Runtime/Runtime/VersionSpecific/Class/Class_108_0.cs
+
+diff --git a/Il2CppInterop.Runtime/Injection/ClassInjector.cs b/Il2CppInterop.Runtime/Injection/ClassInjector.cs
+index b9fb648..4924d4e 100644
+--- a/Il2CppInterop.Runtime/Injection/ClassInjector.cs
++++ b/Il2CppInterop.Runtime/Injection/ClassInjector.cs
+@@ -480,6 +480,38 @@ public static unsafe partial class ClassInjector
+             }
+         }
+ 
++        if (classPointer.HasInterfaceDataTable)
++            SetupInterfaceDataTable(classPointer, baseClassPointer, interfaces, offsets);
++        else
++            SetupInterfaceTables(classPointer, baseClassPointer, interfaces, offsets);
++
++        for (var i = 0; i < abstractMethods.Length; i++)
++        {
++            vTablePointer[index++] = default;
++        }
++
++        var TypeHierarchyDepth = 1 + baseClassPointer.TypeHierarchyDepth;
++        classPointer.TypeHierarchyDepth = (byte)TypeHierarchyDepth;
++        classPointer.TypeHierarchy = (Il2CppClass**)Marshal.AllocHGlobal(TypeHierarchyDepth * IntPtr.Size);
++        for (var i = 0; i < TypeHierarchyDepth; i++)
++            classPointer.TypeHierarchy[i] = baseClassPointer.TypeHierarchy[i];
++        classPointer.TypeHierarchy[TypeHierarchyDepth - 1] = classPointer.ClassPointer;
++
++        classPointer.ByValArg.Data =
++            classPointer.ThisArg.Data = (IntPtr)InjectorHelpers.CreateClassToken(classPointer.Pointer);
++
++        RuntimeSpecificsStore.SetClassInfo(classPointer.Pointer, true);
++        Il2CppClassPointerStore.SetNativeClassPointer(type, classPointer.Pointer);
++
++        InjectorHelpers.AddTypeToLookup(type, classPointer.Pointer);
++
++        if (options.LogSuccess)
++            Logger.Instance.LogInformation("Registered mono type {Type} in il2cpp domain", type);
++    }
++
++    private static void SetupInterfaceTables(INativeClassStruct classPointer, INativeClassStruct baseClassPointer,
++        Il2CppInterfaceCollection interfaces, int[] offsets)
++    {
+         var interfaceCount = baseClassPointer.InterfaceCount + interfaces.Count;
+         classPointer.InterfaceCount = (ushort)interfaceCount;
+         classPointer.ImplementedInterfaces = (Il2CppClass**)Marshal.AllocHGlobal(interfaceCount * IntPtr.Size);
+@@ -502,29 +534,63 @@ public static unsafe partial class ClassInjector
+                 interfaceType = interfaces[i - baseClassPointer.InterfaceOffsetsCount].ClassPointer,
+                 offset = offsets[i - baseClassPointer.InterfaceOffsetsCount]
+             };
++    }
+ 
+-        for (var i = 0; i < abstractMethods.Length; i++)
+-        {
+-            vTablePointer[index++] = default;
+-        }
+-
+-        var TypeHierarchyDepth = 1 + baseClassPointer.TypeHierarchyDepth;
+-        classPointer.TypeHierarchyDepth = (byte)TypeHierarchyDepth;
+-        classPointer.TypeHierarchy = (Il2CppClass**)Marshal.AllocHGlobal(TypeHierarchyDepth * IntPtr.Size);
+-        for (var i = 0; i < TypeHierarchyDepth; i++)
+-            classPointer.TypeHierarchy[i] = baseClassPointer.TypeHierarchy[i];
+-        classPointer.TypeHierarchy[TypeHierarchyDepth - 1] = classPointer.ClassPointer;
++    // Unity 6000.6+ (libil2cpp vm/Class.cpp SetupInterfacesLocked): one table, dispatchable prefix first
++    // (interface_offsets_count entries with real vtable offsets), then the rest of the closure with an invalid
++    // offset. Depth is 0 for direct interfaces and 1 + the parent's depth for inherited ones. The table must be
++    // non-null even when empty, or the runtime rebuilds it from metadata the injected class does not have.
++    private static void SetupInterfaceDataTable(INativeClassStruct classPointer, INativeClassStruct baseClassPointer,
++        Il2CppInterfaceCollection interfaces, int[] offsets)
++    {
++        var baseTable = baseClassPointer.InterfaceData;
++        int baseOffsetCount = baseClassPointer.InterfaceOffsetsCount;
++        int baseCount = baseClassPointer.InterfaceCount;
++        var entries = new List<Il2CppRuntimeInterfaceData>(baseCount + interfaces.Count);
+ 
+-        classPointer.ByValArg.Data =
+-            classPointer.ThisArg.Data = (IntPtr)InjectorHelpers.CreateClassToken(classPointer.Pointer);
++        for (var i = 0; i < baseOffsetCount; i++)
++            entries.Add(Inherited(baseTable[i], keepOffset: true));
++        for (var i = 0; i < interfaces.Count; i++)
++            entries.Add(new Il2CppRuntimeInterfaceData
++            {
++                interfaceType = interfaces[i].ClassPointer,
++                offset = offsets[i],
++                depth = 0,
++            });
++        for (var i = baseOffsetCount; i < baseCount; i++)
++            if (!ContainsInterface(entries, baseTable[i].interfaceType))
++                entries.Add(Inherited(baseTable[i], keepOffset: false));
++
++        var table = (Il2CppRuntimeInterfaceData*)Marshal.AllocHGlobal(
++            Math.Max(entries.Count, 1) * sizeof(Il2CppRuntimeInterfaceData));
++        if (entries.Count == 0)
++            table[0] = new Il2CppRuntimeInterfaceData
++            {
++                interfaceType = null,
++                offset = Il2CppRuntimeInterfaceData.InvalidOffset,
++                depth = 0,
++            };
++        for (var i = 0; i < entries.Count; i++)
++            table[i] = entries[i];
+ 
+-        RuntimeSpecificsStore.SetClassInfo(classPointer.Pointer, true);
+-        Il2CppClassPointerStore.SetNativeClassPointer(type, classPointer.Pointer);
++        classPointer.InterfaceData = table;
++        classPointer.InterfaceOffsetsCount = (ushort)(baseOffsetCount + interfaces.Count);
++        classPointer.InterfaceCount = (ushort)entries.Count;
+ 
+-        InjectorHelpers.AddTypeToLookup(type, classPointer.Pointer);
++        static Il2CppRuntimeInterfaceData Inherited(Il2CppRuntimeInterfaceData source, bool keepOffset) => new()
++        {
++            interfaceType = source.interfaceType,
++            offset = keepOffset ? source.offset : Il2CppRuntimeInterfaceData.InvalidOffset,
++            depth = source.depth == int.MaxValue ? int.MaxValue : source.depth + 1,
++        };
+ 
+-        if (options.LogSuccess)
+-            Logger.Instance.LogInformation("Registered mono type {Type} in il2cpp domain", type);
++        static bool ContainsInterface(List<Il2CppRuntimeInterfaceData> list, Il2CppClass* type)
++        {
++            foreach (var entry in list)
++                if (entry.interfaceType == type)
++                    return true;
++            return false;
++        }
+     }
+ 
+     private static bool IsTypeSupported(Type type)
+diff --git a/Il2CppInterop.Runtime/Runtime/Il2CppStructs.cs b/Il2CppInterop.Runtime/Runtime/Il2CppStructs.cs
+index c2f48fc..c26a869 100644
+--- a/Il2CppInterop.Runtime/Runtime/Il2CppStructs.cs
++++ b/Il2CppInterop.Runtime/Runtime/Il2CppStructs.cs
+@@ -244,6 +244,17 @@ public unsafe struct Il2CppRuntimeInterfaceOffsetPair
+     public int offset;
+ }
+ 
++// Unity 6000.6+: one table replaces implementedInterfaces + interfaceOffsets. The first interface_offsets_count
++// entries carry vtable offsets; the rest of the interfaces_count closure has offset == InvalidOffset.
++public unsafe struct Il2CppRuntimeInterfaceData
++{
++    public const int InvalidOffset = -1;
++
++    public Il2CppClass* interfaceType;
++    public int offset;
++    public int depth;
++}
++
+ [StructLayout(LayoutKind.Sequential)]
+ public struct Il2CppObject
+ {
+diff --git a/Il2CppInterop.Runtime/Runtime/VersionSpecific/Assembly/Assembly_108_0.cs b/Il2CppInterop.Runtime/Runtime/VersionSpecific/Assembly/Assembly_108_0.cs
+new file mode 100644
+index 0000000..05e0e2d
+--- /dev/null
++++ b/Il2CppInterop.Runtime/Runtime/VersionSpecific/Assembly/Assembly_108_0.cs
+@@ -0,0 +1,49 @@
++using System;
++using System.Runtime.InteropServices;
++using Il2CppInterop.Runtime.Runtime.VersionSpecific.AssemblyName;
++namespace Il2CppInterop.Runtime.Runtime.VersionSpecific.Assembly
++{
++    // Unity 6000.6 (metadata v108) adds moduleToken after token (libil2cpp il2cpp-class-internals.h).
++    [ApplicableToUnityVersionsSince("6000.6.0")]
++    public unsafe class NativeAssemblyStructHandler_108_0 : INativeAssemblyStructHandler
++    {
++        public int Size() => sizeof(Il2CppAssembly_108_0);
++        public INativeAssemblyStruct CreateNewStruct()
++        {
++            IntPtr ptr = Marshal.AllocHGlobal(Size());
++            Il2CppAssembly_108_0* _ = (Il2CppAssembly_108_0*)ptr;
++            *_ = default;
++            return new NativeStructWrapper(ptr);
++        }
++        public INativeAssemblyStruct Wrap(Il2CppAssembly* ptr)
++        {
++            if (ptr == null) return null;
++            return new NativeStructWrapper((IntPtr)ptr);
++        }
++        internal unsafe struct Il2CppAssembly_108_0
++        {
++            public Il2CppImage* image;
++            public uint token;
++            public uint moduleToken;
++            public int referencedAssemblyStart;
++            public int referencedAssemblyCount;
++            public NativeAssemblyNameStructHandler_24_1.Il2CppAssemblyName_24_1 aname;
++        }
++
++        internal class NativeStructWrapper : INativeAssemblyStruct
++        {
++            public NativeStructWrapper(IntPtr ptr) => Pointer = ptr;
++            public IntPtr Pointer { get; }
++            private Il2CppAssembly_108_0* _ => (Il2CppAssembly_108_0*)Pointer;
++            public Il2CppAssembly* AssemblyPointer => (Il2CppAssembly*)Pointer;
++            public INativeAssemblyNameStruct Name
++            {
++                get => UnityVersionHandler.Wrap((Il2CppAssemblyName*)&_->aname);
++                set => _->aname = *(NativeAssemblyNameStructHandler_24_1.Il2CppAssemblyName_24_1*)value.AssemblyNamePointer;
++            }
++            public ref Il2CppImage* Image => ref _->image;
++        }
++
++    }
++
++}
+diff --git a/Il2CppInterop.Runtime/Runtime/VersionSpecific/Class/Class_108_0.cs b/Il2CppInterop.Runtime/Runtime/VersionSpecific/Class/Class_108_0.cs
+new file mode 100644
+index 0000000..0181991
+--- /dev/null
++++ b/Il2CppInterop.Runtime/Runtime/VersionSpecific/Class/Class_108_0.cs
+@@ -0,0 +1,209 @@
++using System;
++using System.Runtime.InteropServices;
++using Il2CppInterop.Runtime.Runtime.VersionSpecific.Type;
++namespace Il2CppInterop.Runtime.Runtime.VersionSpecific.Class
++{
++    // Unity 6000.6 (metadata v108): implementedInterfaces + interfaceOffsets merged into one Il2CppRuntimeInterfaceData
++    // table, and events/properties/nestedTypes moved after typeHierarchy (libil2cpp il2cpp-class-internals.h).
++    [ApplicableToUnityVersionsSince("6000.6.0")]
++    public unsafe class NativeClassStructHandler_108_0 : INativeClassStructHandler
++    {
++        public int Size() => sizeof(Il2CppClass_108_0);
++        public INativeClassStruct CreateNewStruct(int vTableSlots)
++        {
++            IntPtr ptr = Marshal.AllocHGlobal(Size() + sizeof(VirtualInvokeData) * vTableSlots);
++            Il2CppClass_108_0* _ = (Il2CppClass_108_0*)ptr;
++            *_ = default;
++            return new NativeStructWrapper(ptr);
++        }
++        public INativeClassStruct Wrap(Il2CppClass* ptr)
++        {
++            if (ptr == null) return null;
++            return new NativeStructWrapper((IntPtr)ptr);
++        }
++        internal unsafe struct Il2CppClass_108_0
++        {
++            public Il2CppImage* image;
++            public void* gc_desc;
++            public byte* name;
++            public byte* namespaze;
++            public NativeTypeStructHandler_27_0.Il2CppType_27_0 byval_arg;
++            public NativeTypeStructHandler_27_0.Il2CppType_27_0 this_arg;
++            public Il2CppClass* element_class;
++            public Il2CppClass* castClass;
++            public Il2CppClass* declaringType;
++            public Il2CppClass* parent;
++            public void* generic_class;
++            public Il2CppMetadataTypeHandle typeMetadataHandle;
++            public void* interopData;
++            public Il2CppClass* klass;
++            public Il2CppFieldInfo* fields;
++            public Il2CppMethodInfo** methods;
++            public Il2CppRuntimeInterfaceData* interfaces;
++            public void* static_fields;
++            public void* rgctx_data;
++            public Il2CppClass** typeHierarchy;
++            public Il2CppEventInfo* events;
++            public Il2CppPropertyInfo* properties;
++            public Il2CppClass** nestedTypes;
++            public void* unity_user_data;
++            public Il2CppGCHandle initializationExceptionGCHandle;
++            public uint cctor_started;
++            public uint cctor_finished_or_no_cctor;
++            public IntPtr cctor_thread;
++            public Il2CppMetadataGenericContainerHandle genericContainerHandle;
++            public uint instance_size;
++            public uint stack_slot_size;
++            public uint actualSize;
++            public uint element_size;
++            public int native_size;
++            public uint static_fields_size;
++            public uint thread_static_fields_size;
++            public int thread_static_fields_offset;
++            public uint flags;
++            public uint token;
++            public ushort method_count;
++            public ushort property_count;
++            public ushort field_count;
++            public ushort event_count;
++            public ushort nested_type_count;
++            public ushort vtable_count;
++            public ushort interfaces_count;
++            public ushort interface_offsets_count;
++            public byte typeHierarchyDepth;
++            public byte genericRecursionDepth;
++            public byte rank;
++            public byte minimumAlignment;
++            public byte packingSize;
++            public Bitfield0 _bitfield0;
++            public Bitfield1 _bitfield1;
++            internal enum Bitfield0 : byte
++            {
++                BIT_initialized_and_no_error = 0,
++                initialized_and_no_error = (1 << BIT_initialized_and_no_error),
++                BIT_initialized = 1,
++                initialized = (1 << BIT_initialized),
++                BIT_enumtype = 2,
++                enumtype = (1 << BIT_enumtype),
++                BIT_nullabletype = 3,
++                nullabletype = (1 << BIT_nullabletype),
++                BIT_is_generic = 4,
++                is_generic = (1 << BIT_is_generic),
++                BIT_has_references = 5,
++                has_references = (1 << BIT_has_references),
++                BIT_init_pending = 6,
++                init_pending = (1 << BIT_init_pending),
++                BIT_size_init_pending = 7,
++                size_init_pending = (1 << BIT_size_init_pending),
++            }
++
++            internal enum Bitfield1 : byte
++            {
++                BIT_size_inited = 0,
++                size_inited = (1 << BIT_size_inited),
++                BIT_has_finalize = 1,
++                has_finalize = (1 << BIT_has_finalize),
++                BIT_has_cctor = 2,
++                has_cctor = (1 << BIT_has_cctor),
++                BIT_is_blittable = 3,
++                is_blittable = (1 << BIT_is_blittable),
++                BIT_is_import_or_windows_runtime = 4,
++                is_import_or_windows_runtime = (1 << BIT_is_import_or_windows_runtime),
++                BIT_is_vtable_initialized = 5,
++                is_vtable_initialized = (1 << BIT_is_vtable_initialized),
++                BIT_is_byref_like = 6,
++                is_byref_like = (1 << BIT_is_byref_like),
++                BIT_has_inline_array = 7,
++                has_inline_array = (1 << BIT_has_inline_array),
++            }
++
++        }
++
++        internal class NativeStructWrapper : INativeClassStruct
++        {
++            public NativeStructWrapper(IntPtr ptr) => Pointer = ptr;
++            private static int _bitfield0offset = Marshal.OffsetOf<Il2CppClass_108_0>(nameof(Il2CppClass_108_0._bitfield0)).ToInt32();
++            private static int _bitfield1offset = Marshal.OffsetOf<Il2CppClass_108_0>(nameof(Il2CppClass_108_0._bitfield1)).ToInt32();
++            public IntPtr Pointer { get; }
++            private Il2CppClass_108_0* _ => (Il2CppClass_108_0*)Pointer;
++            public IntPtr VTable => IntPtr.Add(Pointer, sizeof(Il2CppClass_108_0));
++            public Il2CppClass* ClassPointer => (Il2CppClass*)Pointer;
++            public INativeTypeStruct ByValArg => UnityVersionHandler.Wrap((Il2CppTypeStruct*)&_->byval_arg);
++            public INativeTypeStruct ThisArg => UnityVersionHandler.Wrap((Il2CppTypeStruct*)&_->this_arg);
++            public ref uint InstanceSize => ref _->instance_size;
++            public ref ushort VtableCount => ref _->vtable_count;
++            public ref ushort InterfaceCount => ref _->interfaces_count;
++            public ref ushort InterfaceOffsetsCount => ref _->interface_offsets_count;
++            public ref byte TypeHierarchyDepth => ref _->typeHierarchyDepth;
++            public ref int NativeSize => ref _->native_size;
++            public ref uint ActualSize => ref _->actualSize;
++            public ref ushort MethodCount => ref _->method_count;
++            public ref ushort FieldCount => ref _->field_count;
++            public ref Il2CppClassAttributes Flags => ref *(Il2CppClassAttributes*)&_->flags;
++            public ref IntPtr Name => ref *(IntPtr*)&_->name;
++            public ref IntPtr Namespace => ref *(IntPtr*)&_->namespaze;
++            public ref Il2CppImage* Image => ref _->image;
++            public ref Il2CppClass* Parent => ref _->parent;
++            public ref Il2CppClass* ElementClass => ref _->element_class;
++            public ref Il2CppClass* CastClass => ref _->castClass;
++            public ref Il2CppClass* DeclaringType => ref _->declaringType;
++            public ref Il2CppClass* Class => ref _->klass;
++            public ref Il2CppFieldInfo* Fields => ref _->fields;
++            public ref Il2CppMethodInfo** Methods => ref _->methods;
++            public ref Il2CppClass** ImplementedInterfaces =>
++                throw new NotSupportedException("Unity 6000.6+ stores interfaces in InterfaceData");
++            public ref Il2CppRuntimeInterfaceOffsetPair* InterfaceOffsets =>
++                throw new NotSupportedException("Unity 6000.6+ stores interfaces in InterfaceData");
++            public bool HasInterfaceDataTable => true;
++            public ref Il2CppRuntimeInterfaceData* InterfaceData => ref _->interfaces;
++            public ref Il2CppClass** TypeHierarchy => ref _->typeHierarchy;
++            public bool ValueType
++            {
++                get => ByValArg.ValueType && ThisArg.ValueType;
++                set { }
++            }
++            public bool Initialized
++            {
++                get => this.CheckBit(_bitfield0offset, (int)Il2CppClass_108_0.Bitfield0.BIT_initialized);
++                set => this.SetBit(_bitfield0offset, (int)Il2CppClass_108_0.Bitfield0.BIT_initialized, value);
++            }
++            public bool EnumType
++            {
++                get => this.CheckBit(_bitfield0offset, (int)Il2CppClass_108_0.Bitfield0.BIT_enumtype);
++                set => this.SetBit(_bitfield0offset, (int)Il2CppClass_108_0.Bitfield0.BIT_enumtype, value);
++            }
++            public bool IsGeneric
++            {
++                get => this.CheckBit(_bitfield0offset, (int)Il2CppClass_108_0.Bitfield0.BIT_is_generic);
++                set => this.SetBit(_bitfield0offset, (int)Il2CppClass_108_0.Bitfield0.BIT_is_generic, value);
++            }
++            public bool HasReferences
++            {
++                get => this.CheckBit(_bitfield0offset, (int)Il2CppClass_108_0.Bitfield0.BIT_has_references);
++                set => this.SetBit(_bitfield0offset, (int)Il2CppClass_108_0.Bitfield0.BIT_has_references, value);
++            }
++            public bool SizeInited
++            {
++                get => this.CheckBit(_bitfield1offset, (int)Il2CppClass_108_0.Bitfield1.BIT_size_inited);
++                set => this.SetBit(_bitfield1offset, (int)Il2CppClass_108_0.Bitfield1.BIT_size_inited, value);
++            }
++            public bool HasFinalize
++            {
++                get => this.CheckBit(_bitfield1offset, (int)Il2CppClass_108_0.Bitfield1.BIT_has_finalize);
++                set => this.SetBit(_bitfield1offset, (int)Il2CppClass_108_0.Bitfield1.BIT_has_finalize, value);
++            }
++            public bool IsVtableInitialized
++            {
++                get => this.CheckBit(_bitfield1offset, (int)Il2CppClass_108_0.Bitfield1.BIT_is_vtable_initialized);
++                set => this.SetBit(_bitfield1offset, (int)Il2CppClass_108_0.Bitfield1.BIT_is_vtable_initialized, value);
++            }
++            public bool InitializedAndNoError
++            {
++                get => this.CheckBit(_bitfield0offset, (int)Il2CppClass_108_0.Bitfield0.BIT_initialized_and_no_error);
++                set => this.SetBit(_bitfield0offset, (int)Il2CppClass_108_0.Bitfield0.BIT_initialized_and_no_error, value);
++            }
++        }
++
++    }
++
++}
+diff --git a/Il2CppInterop.Runtime/Runtime/VersionSpecific/Class/Interfaces.cs b/Il2CppInterop.Runtime/Runtime/VersionSpecific/Class/Interfaces.cs
+index 930da95..50cf6e9 100644
+--- a/Il2CppInterop.Runtime/Runtime/VersionSpecific/Class/Interfaces.cs
++++ b/Il2CppInterop.Runtime/Runtime/VersionSpecific/Class/Interfaces.cs
+@@ -52,4 +52,11 @@ public interface INativeClassStruct : INativeStruct
+     unsafe ref Il2CppClass** ImplementedInterfaces { get; }
+     unsafe ref Il2CppRuntimeInterfaceOffsetPair* InterfaceOffsets { get; }
+     unsafe ref Il2CppClass** TypeHierarchy { get; }
++
++    // True when the runtime keeps interfaces in a single Il2CppRuntimeInterfaceData table (Unity 6000.6+);
++    // ImplementedInterfaces and InterfaceOffsets are then unavailable and InterfaceData is used instead.
++    bool HasInterfaceDataTable => false;
++
++    unsafe ref Il2CppRuntimeInterfaceData* InterfaceData =>
++        throw new NotSupportedException("This Unity version stores interfaces as ImplementedInterfaces + InterfaceOffsets");
+ }
+-- 
+2.53.0.windows.2
+

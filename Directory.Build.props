@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- BepInEx's IL2CPP runtime is .NET 6, which is out of support; we target it on purpose. -->
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <!-- Override on the command line (-p:MoonSweepersDir=...) or with the MOONSWEEPERS_DIR environment variable. -->
+    <MoonSweepersDir Condition="'$(MoonSweepersDir)' == '' and '$(MOONSWEEPERS_DIR)' != ''">$(MOONSWEEPERS_DIR)</MoonSweepersDir>
+    <MoonSweepersDir Condition="'$(MoonSweepersDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Moon Sweepers</MoonSweepersDir>
+  </PropertyGroup>
+</Project>

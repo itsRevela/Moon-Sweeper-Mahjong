@@ -1,0 +1,45 @@
+Moon Sweeper Mahjong: third-party notices
+==========================================
+
+Moon Sweeper Mahjong is free software under the GNU General Public License, version 3 (LICENSE.txt). It contains or
+is built on the works below, each under its own license. Full license texts follow this list.
+
+Rules engine and sounds
+  OpenRiichi (via Practice-Riichi-Mahjong)  GPL-3.0   https://github.com/FluffyStuff/OpenRiichi
+                                                       https://github.com/itsRevela/Practice-Riichi-Mahjong
+  The rules engine and table layout are a C# port of its Vala source; the table sound effects are its audio files.
+  Its license is the GPL-3.0 in LICENSE.txt.
+
+Tile and table art
+  NaoMahjong                    MIT        https://github.com/HitomiFlower/NaoMahjong
+  The tile corner indices are drawn with Aileron Regular (bundled with Pillow), which is in the public domain (CC0).
+
+Mod loader (the payload's BepInEx, dotnet and doorstop files)
+  BepInEx                       LGPL-2.1   https://github.com/BepInEx/BepInEx
+      Modified: runs Cpp2IL out of process so it can read this game's IL2CPP metadata (version 108). The changes are
+      in patches/bepinex-external-cpp2il.patch of https://github.com/itsRevela/Moon-Sweeper-Mahjong.
+  Il2CppInterop                 LGPL-3.0   https://github.com/BepInEx/Il2CppInterop
+      Modified: support for Unity 6000.6's class and assembly layouts. The changes are in
+      patches/il2cppinterop-unity-6000.6.patch of the same repository.
+  Cpp2IL, LibCpp2IL, Disarm, StableNameDotNet, WasmDisassembler
+                                MIT        https://github.com/SamboyCoding/Cpp2IL
+  UnityDoorstop (winhttp.dll)   LGPL-2.1   https://github.com/NeighTools/UnityDoorstop
+  HarmonyX                      MIT        https://github.com/BepInEx/HarmonyX
+  MonoMod                       MIT        https://github.com/MonoMod/MonoMod
+  Mono.Cecil                    MIT        https://github.com/jbevain/cecil
+  AsmResolver                   MIT        https://github.com/Washi1337/AsmResolver
+  AssetRipper.CIL, AssetRipper.Primitives
+                                MIT        https://github.com/AssetRipper
+  Iced                          MIT        https://github.com/icedland/iced
+  Capstone                      BSD-3-Clause  https://github.com/capstone-engine/capstone
+  Gee.External.Capstone         MIT        https://github.com/9ee1/Capstone.NET
+  dobby                         Apache-2.0 https://github.com/jmpews/Dobby
+  TerraFX.Interop.Windows       MIT        https://github.com/terrafx/terrafx.interop.windows
+  SemanticVersioning            MIT        https://github.com/adamreeve/semver.net
+  CommandLineParser             MIT        https://github.com/commandlineparser/commandline
+  Pastel                        MIT        https://github.com/silkfire/Pastel
+  .NET runtime and Microsoft.* libraries
+                                MIT        https://github.com/dotnet/runtime
+
+Moon Sweepers itself is not included: the installer only adds the files above to the game's folder and changes none of
+the game's own files. The game remains the property of its developers.

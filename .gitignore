@@ -1,0 +1,26 @@
+# Decompiled game output (derived from the game; never commit)
+extracted/
+
+# Third-party tool clones and downloads (rebuilt/fetched locally)
+tools/
+downloads/
+
+# Build outputs
+bin/
+obj/
+*.user
+.vs/
+
+# Local runtime state
+.run/
+
+# Generated plugin assets (scripts/prepare_assets.py)
+build/
+
+# Release builds (scripts/package_release.py)
+dist/
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/

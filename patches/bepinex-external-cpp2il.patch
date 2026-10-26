@@ -1,0 +1,163 @@
+From ecee14472c284bbda0cf05521fae3d4cff2caf74 Mon Sep 17 00:00:00 2001
+From: revela <rexmarek@gmail.com>
+Date: Sun, 25 Oct 2026 18:02:38 -0500
+Subject: [PATCH] Run an external Cpp2IL CLI when present; use local
+ Il2CppInterop 1.5.4-moonsweepers.2
+
+Cpp2IL builds that read IL2CPP metadata v107+ (Unity 6000.5+) are built against
+AsmResolver 6.0.x, while Il2CppInterop 1.5.x needs 6.0.0-beta.5, so they cannot share
+a process. BepInEx/cpp2il/Cpp2IL.exe, when present, runs out of process and its dummy
+assemblies are read from disk.
+---
+ .../BepInEx.Unity.IL2CPP.csproj               |  6 +-
+ .../Il2CppInteropManager.cs                   | 90 +++++++++++++++++++
+ nuget.config                                  |  1 +
+ 3 files changed, 94 insertions(+), 3 deletions(-)
+
+diff --git a/Runtimes/Unity/BepInEx.Unity.IL2CPP/BepInEx.Unity.IL2CPP.csproj b/Runtimes/Unity/BepInEx.Unity.IL2CPP/BepInEx.Unity.IL2CPP.csproj
+index 1fcd6e4..0d3e4a5 100644
+--- a/Runtimes/Unity/BepInEx.Unity.IL2CPP/BepInEx.Unity.IL2CPP.csproj
++++ b/Runtimes/Unity/BepInEx.Unity.IL2CPP/BepInEx.Unity.IL2CPP.csproj
+@@ -15,10 +15,10 @@
+     <ItemGroup>
+         <PackageReference Include="HarmonyX" Version="2.10.2" />
+         <PackageReference Include="Iced" Version="1.21.0" />
+-        <PackageReference Include="Il2CppInterop.Generator" Version="1.5.3" />
+-        <PackageReference Include="Il2CppInterop.HarmonySupport" Version="1.5.3" />
++        <PackageReference Include="Il2CppInterop.Generator" Version="1.5.4-moonsweepers.2" />
++        <PackageReference Include="Il2CppInterop.HarmonySupport" Version="1.5.4-moonsweepers.2" />
+         <PackageReference Include="Il2CppInterop.ReferenceLibs" Version="1.0.0" IncludeAssets="compile" PrivateAssets="all" />
+-        <PackageReference Include="Il2CppInterop.Runtime" Version="1.5.3" />
++        <PackageReference Include="Il2CppInterop.Runtime" Version="1.5.4-moonsweepers.2" />
+         <PackageReference Include="Microsoft.Extensions.Logging" Version="6.0.0" IncludeAssets="compile" PrivateAssets="all" />
+         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.1" IncludeAssets="compile" PrivateAssets="all" />
+         <PackageReference Include="MonoMod.RuntimeDetour" Version="22.7.31.1" />
+diff --git a/Runtimes/Unity/BepInEx.Unity.IL2CPP/Il2CppInteropManager.cs b/Runtimes/Unity/BepInEx.Unity.IL2CPP/Il2CppInteropManager.cs
+index fe9de89..b8057b0 100644
+--- a/Runtimes/Unity/BepInEx.Unity.IL2CPP/Il2CppInteropManager.cs
++++ b/Runtimes/Unity/BepInEx.Unity.IL2CPP/Il2CppInteropManager.cs
+@@ -186,6 +186,19 @@ internal static partial class Il2CppInteropManager
+         HashString(md5, typeof(InteropAssemblyGenerator).Assembly.GetName().Version.ToString());
+         HashString(md5, typeof(Cpp2IlApi).Assembly.GetName().Version.ToString());
+ 
++        if (File.Exists(ExternalCpp2IlPath))
++        {
++            var externalDir = Path.GetDirectoryName(ExternalCpp2IlPath)!;
++            foreach (var name in new[] { "Cpp2IL.exe", "Cpp2IL.Core.dll", "LibCpp2IL.dll" })
++            {
++                var file = Path.Combine(externalDir, name);
++                if (!File.Exists(file))
++                    continue;
++                HashString(md5, name);
++                HashFile(md5, file);
++            }
++        }
++
+         md5.TransformFinalBlock(new byte[0], 0, 0);
+ 
+         return Utility.ByteArrayToString(md5.Hash);
+@@ -355,6 +368,14 @@ internal static partial class Il2CppInteropManager
+ 
+         var cpp2IlLogger = BepInEx.Logging.Logger.CreateLogSource("Cpp2IL");
+ 
++        if (File.Exists(ExternalCpp2IlPath))
++        {
++            var externalAssemblies = RunExternalCpp2Il(metadataPath, cpp2IlLogger);
++            stopwatch.Stop();
++            Logger.LogInfo($"Cpp2IL finished in {stopwatch.Elapsed}");
++            return externalAssemblies;
++        }
++
+         Cpp2IL.Core.Logging.Logger.VerboseLog += (message, s) =>
+             cpp2IlLogger.LogDebug($"[{s}] {message.Trim()}");
+         Cpp2IL.Core.Logging.Logger.InfoLog += (message, s) =>
+@@ -390,6 +411,75 @@ internal static partial class Il2CppInteropManager
+         return assemblies;
+     }
+ 
++    // A Cpp2IL CLI placed here runs out of process instead of the bundled Cpp2IL.Core. Newer Cpp2IL builds read newer
++    // IL2CPP metadata (v107+, Unity 6000.5+) but are built against a newer AsmResolver than Il2CppInterop, so they
++    // cannot share this process; their dummy assemblies are exchanged through files instead.
++    private static string ExternalCpp2IlPath => Path.Combine(Paths.BepInExRootPath, "cpp2il", "Cpp2IL.exe");
++
++    private static string ExternalCpp2IlOutputPath => Path.Combine(Paths.CachePath, "cpp2il-dummy");
++
++    private static readonly Regex AnsiEscape = new(@"\x1B\[[0-9;]*m", RegexOptions.Compiled);
++
++    private static List<AsmResolver.DotNet.AssemblyDefinition> RunExternalCpp2Il(string metadataPath,
++        ManualLogSource cpp2IlLogger)
++    {
++        Logger.LogMessage($"Using external Cpp2IL at {ExternalCpp2IlPath}");
++
++        if (Directory.Exists(ExternalCpp2IlOutputPath))
++            Directory.Delete(ExternalCpp2IlOutputPath, true);
++        Directory.CreateDirectory(ExternalCpp2IlOutputPath);
++
++        var startInfo = new ProcessStartInfo(ExternalCpp2IlPath)
++        {
++            UseShellExecute = false,
++            RedirectStandardOutput = true,
++            RedirectStandardError = true,
++            CreateNoWindow = true,
++            WorkingDirectory = Path.GetDirectoryName(ExternalCpp2IlPath)!,
++        };
++        foreach (var argument in new[]
++                 {
++                     "--force-binary-path", GameAssemblyPath,
++                     "--force-metadata-path", metadataPath,
++                     "--force-unity-version", UnityInfo.Version.ToString(),
++                     "--use-processor", "attributeinjector",
++                     "--output-as", "dll_default",
++                     "--output-to", ExternalCpp2IlOutputPath,
++                 })
++            startInfo.ArgumentList.Add(argument);
++
++        using var process = new Process { StartInfo = startInfo };
++        process.OutputDataReceived += (_, e) => LogExternalLine(cpp2IlLogger, e.Data, false);
++        process.ErrorDataReceived += (_, e) => LogExternalLine(cpp2IlLogger, e.Data, true);
++        if (!process.Start())
++            throw new InvalidOperationException($"Could not start {ExternalCpp2IlPath}");
++        process.BeginOutputReadLine();
++        process.BeginErrorReadLine();
++        process.WaitForExit();
++
++        if (process.ExitCode != 0)
++            throw new InvalidOperationException($"External Cpp2IL exited with code {process.ExitCode}; see the Cpp2IL lines above");
++
++        var files = Directory.GetFiles(ExternalCpp2IlOutputPath, "*.dll");
++        if (files.Length == 0)
++            throw new InvalidOperationException($"External Cpp2IL wrote no assemblies to {ExternalCpp2IlOutputPath}");
++
++        return files.Select(AsmResolver.DotNet.AssemblyDefinition.FromFile).ToList();
++    }
++
++    private static void LogExternalLine(ManualLogSource logger, string line, bool isError)
++    {
++        if (string.IsNullOrWhiteSpace(line))
++            return;
++        var text = AnsiEscape.Replace(line, "").Trim();
++        if (isError || text.StartsWith("[Error]", StringComparison.Ordinal))
++            logger.LogError(text);
++        else if (text.StartsWith("[Warn]", StringComparison.Ordinal))
++            logger.LogWarning(text);
++        else
++            logger.LogInfo(text);
++    }
++
+     private static void RunIl2CppInteropGenerator(List<AsmResolver.DotNet.AssemblyDefinition> sourceAssemblies)
+     {
+         var opts = new GeneratorOptions
+diff --git a/nuget.config b/nuget.config
+index 5e67f2a..366366c 100644
+--- a/nuget.config
++++ b/nuget.config
+@@ -3,5 +3,6 @@
+   <packageSources>
+     <add key="BepInEx" value="https://nuget.bepinex.dev/v3/index.json" />
+     <add key="Samboy" value="https://nuget.samboy.dev/v3/index.json" />
++    <add key="MoonSweepersLocal" value="../localfeed" />
+   </packageSources>
+ </configuration>
+-- 
+2.53.0.windows.2
+

@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>MoonMahjong</AssemblyName>
+    <RootNamespace>MoonMahjong.Plugin</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <BepInExDir>$(MoonSweepersDir)\BepInEx</BepInExDir>
+  </PropertyGroup>
+
+  <!-- Compile against the loader and the game's interop assemblies in place; the game supplies them at run time. -->
+  <ItemGroup>
+    <Reference Include="$(BepInExDir)\core\BepInEx.Core.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\core\BepInEx.Unity.IL2CPP.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\core\BepInEx.Unity.Common.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\core\Il2CppInterop.Runtime.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\core\Il2CppInterop.Common.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\core\0Harmony.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\interop\*.dll" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MoonMahjong.Core\MoonMahjong.Core.csproj" />
+    <ProjectReference Include="..\MoonMahjong.Table\MoonMahjong.Table.csproj" />
+  </ItemGroup>
+
+  <!-- dotnet build -p:DeployToGame=true copies the mod into its own plugins folder (replaced wholesale each time). -->
+  <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(DeployToGame)' == 'true'">
+    <PropertyGroup>
+      <PluginDeployDir>$(BepInExDir)\plugins\MoonMahjong</PluginDeployDir>
+    </PropertyGroup>
+    <PropertyGroup>
+      <ModAssetsDir>$(MSBuildThisFileDirectory)..\..\build\assets</ModAssetsDir>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(ModAssetsDir)\manifest.json')" Text="Run 'python -m scripts.prepare_assets' first (no $(ModAssetsDir)\manifest.json)." />
+    <ItemGroup>
+      <ModFiles Include="$(OutDir)MoonMahjong*.dll;$(OutDir)MoonMahjong*.pdb" />
+      <ModAssets Include="$(ModAssetsDir)\**\*" />
+    </ItemGroup>
+    <RemoveDir Directories="$(PluginDeployDir)" />
+    <Copy SourceFiles="@(ModFiles)" DestinationFolder="$(PluginDeployDir)" />
+    <Copy SourceFiles="@(ModAssets)" DestinationFiles="@(ModAssets->'$(PluginDeployDir)\assets\%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Message Importance="high" Text="DEPLOY OK: @(ModFiles->Count()) files and @(ModAssets->Count()) assets to $(PluginDeployDir)" />
+  </Target>
+
+</Project>

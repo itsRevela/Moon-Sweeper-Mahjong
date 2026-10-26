@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Riichi rules engine, ported from Practice-Riichi-Mahjong (OpenRiichi fork, GPLv3). No Unity dependency. -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <RootNamespace>MoonMahjong.Core</RootNamespace>
+  </PropertyGroup>
+
+</Project>

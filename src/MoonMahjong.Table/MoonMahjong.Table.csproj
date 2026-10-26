@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Unity-free presentation model: where every tile sits and how it moves, ported from OpenRiichi's
+       source/Game/Rendering/*.vala and its Engine maths (Practice-Riichi-Mahjong, GPLv3). No Unity dependency. -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <RootNamespace>MoonMahjong.Table</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MoonMahjong.Core\MoonMahjong.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MoonMahjong.Table.Tests" />
+  </ItemGroup>
+
+</Project>
