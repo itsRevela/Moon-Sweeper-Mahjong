@@ -189,7 +189,7 @@ public sealed class MahjongTable : MonoBehaviour
             Face(ObserverDirection(game, match.ObserverSeat));
             var playing = chair >= 0 && game.LocalSeat >= 0 && game.ChairOf(game.LocalSeat) == chair;
             var (pointer, click) = playing ? ReadPointer(MoonLoungePlayer.Local!) : (null, false);
-            match.Update(now, pointer, click);
+            match.Update(now, pointer, click, Viewer());
             state = match.Describe();
             var notice = TableNotices.During(game, chair);
             var resetting = table.ResetHolders.Where(id => id != table.Link.LocalId).Select(table.Link.NameOf).ToList();
@@ -366,6 +366,14 @@ public sealed class MahjongTable : MonoBehaviour
         hud?.Dispose();
         hud = null;
         devDealAt = null;
+    }
+
+    // The camera looking at the table: the seated player's, or the game's main camera for someone standing.
+    private static Transform? Viewer()
+    {
+        var local = MoonLoungePlayer.Local;
+        var camera = local != null && local.walker != null && local.walker.viewCamera != null ? local.walker.viewCamera : Camera.main;
+        return camera != null ? camera.transform : null;
     }
 
     // The local player's chair at this table, or -1.

@@ -9,7 +9,8 @@ empty seat.
 - A 3D table with rounded tiles, corner indices on every tile, the round and scores on the centre console, and the
   table's own sounds.
 - No turn timer for people. Stand up any time to pause the game; sit back down to carry on.
-- Round results with the winning hand in 3D, every yaku with its han, and everyone's points.
+- Round ends play out on the table first (the call as a hologram over the winner, the winning tile lit, the hands
+  opened), then the results: the winning hand in 3D, every yaku with its han, and everyone's points.
 - Crew play over the game's own Steam session: crewmates with the mod sit down together, and the rest of the crew
   with the mod can watch (hidden hands stay face down).
 

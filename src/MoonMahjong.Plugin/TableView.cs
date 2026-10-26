@@ -27,6 +27,9 @@ internal sealed class TableView : IDisposable
     private readonly Material?[] shownMaterial = new Material?[TileCount];
     private readonly Dictionary<int, int> tileByCollider = new();
     private readonly Transform[] sticks = new Transform[4];
+    // The tile a round was just won on (requested: highlighted, bobbing, lit) and the light that marks it.
+    private int? winningTile;
+    private Light? winningLight;
 
     public TableView(Transform surface, MahjongAssets assets, TableLayout layout, Vector3 observerDirection)
     {
@@ -66,6 +69,17 @@ internal sealed class TableView : IDisposable
         }
     }
 
+    // The view's space (observer on -Z) and how long a tile width is in it, for things placed over the table.
+    public Transform Root => root;
+    public float Unit => unit;
+
+    public void SetWinningTile(int? id)
+    {
+        winningTile = id;
+        if (id == null && winningLight != null)
+            winningLight.enabled = false;
+    }
+
     // The layout's -Z (the observer) points at the observer's chair.
     public void Face(Vector3 observerDirection)
     {
@@ -86,7 +100,9 @@ internal sealed class TableView : IDisposable
             tiles[id].localRotation = ToUnity(pose.Rotation);
             // The local player's own hand is the only set of tiles whose face leans toward -Z (the observer).
             var inOwnHand = (tiles[id].localRotation * Vector3.forward).z < -0.1f;
-            var look = highlighted != null && highlighted.Contains(id) ? TileLook.Highlighted
+            if (id == winningTile)
+                position += Vector3.up * ((0.12f + 0.06f * Mathf.Sin(time * 5f)) * unit);
+            var look = highlighted != null && highlighted.Contains(id) || id == winningTile ? TileLook.Highlighted
                 : dimmed != null && dimmed.Contains(id) ? TileLook.Dimmed
                 : inOwnHand ? TileLook.OwnHand : TileLook.Table;
             var material = assets.MaterialFor(pose.Type, pose.RedFive, look);
@@ -96,6 +112,8 @@ internal sealed class TableView : IDisposable
                 shownMaterial[id] = material;
             }
         }
+        if (winningTile is { } won)
+            LightWinningTile(won, time);
 
         for (var seat = 0; seat < sticks.Length; seat++)
         {
@@ -106,6 +124,23 @@ internal sealed class TableView : IDisposable
             sticks[seat].localPosition = ToUnity(pose.Position) * unit;
             sticks[seat].localRotation = ToUnity(pose.Rotation);
         }
+    }
+
+    // A warm, pulsing light just above the winning tile.
+    private void LightWinningTile(int id, float time)
+    {
+        if (winningLight == null)
+        {
+            winningLight = new GameObject("Winning tile light").AddComponent<Light>();
+            winningLight.transform.SetParent(root, false);
+            winningLight.type = LightType.Point;
+            winningLight.color = new Color(1f, 0.72f, 0.3f, 1f);
+            winningLight.range = 0.35f;
+            winningLight.shadows = LightShadows.None;
+        }
+        winningLight.enabled = true;
+        winningLight.transform.localPosition = tiles[id].localPosition + Vector3.up * (1.2f * unit);
+        winningLight.intensity = 1.6f + 0.9f * Mathf.Sin(time * 5f);
     }
 
     // The tile whose box the ray hits first, if any (tile boxes are triggers; other colliders in the way are ignored).

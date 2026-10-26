@@ -16,6 +16,9 @@ namespace MoonMahjong.Plugin;
 internal sealed class MatchController : IDisposable
 {
     private const float PickDistance = 4f;
+    // A round's end plays out on the table first (the call as a hologram, the winning tile lit, hands opening), and the
+    // result comes up this long after (requested).
+    private const float ResultDelay = 4.2f;
     // In riichi, the drawn tile is thrown by itself after this long, so the player sees what came (requested).
     private const float RiichiDiscardDelay = 0.6f;
     private const float SoundVolume = 0.8f;
@@ -65,6 +68,7 @@ internal sealed class MatchController : IDisposable
                 playedRound.Honba, state.GameIsFinished);
             lastHands = WinningHands(result);
             roundEndedAt = now;
+            ShowRoundEnd(RoundEndCall.From(result, result.Scores.FirstOrDefault()?.Round?.WinTile?.ID));
         };
     }
 
@@ -84,7 +88,8 @@ internal sealed class MatchController : IDisposable
     public void Advance(float time) => now = time;
 
     // Draw the table at `time` and let the pointer pick tiles (null while it is over the HUD or the player is not playing).
-    public void Update(float time, Ray? pointer, bool click)
+    // `viewer`: the camera looking at the table (the round-end hologram turns toward it).
+    public void Update(float time, Ray? pointer, bool click, Transform? viewer = null)
     {
         now = time;
         // The host waits for the player's Next round, so the dev auto-player presses it too.
@@ -113,6 +118,9 @@ internal sealed class MatchController : IDisposable
                 round!.ClientTileSelected(group.SelectionTiles.FirstOrDefault(t => t.ID == hovered) ?? group.SelectionTiles[0]);
         }
         view.Apply(time, lifted, CallableDiscard(), CopiesOnBoard(hovered));
+        if (hologram != null && time - roundEndedAt >= ResultDelay)
+            HideRoundEnd();
+        hologram?.Update(time, viewer);
         foreach (var cue in layout.TakeSounds(time))
             MoonOneShot.Play(assets.Sound(cue.Sound), new Il2CppSystem.Nullable<Vector3>(surface.position), SoundVolume, 1f, HearingDistance);
 
@@ -126,6 +134,7 @@ internal sealed class MatchController : IDisposable
     private bool described;
     private float roundCreatedAt;
     private int? hoveredTile;
+    private RoundEndHologram? hologram;
     private int? lastDiscard;
     // The waits popup's last answer (the hand and table don't change while a riichi discard is being chosen).
     private (int Tile, IReadOnlyList<WaitTile> Waits)? riichiWaits;
@@ -207,7 +216,7 @@ internal sealed class MatchController : IDisposable
                        (state.ChiiOptions != null ? "Chii: choose the sequence   " : "") +
                        (limited ? $"{Mathf.CeilToInt(remaining)} s" : "") + (furiten ? "   furiten" : "");
 
-        if (client.AwaitingScoreAcknowledgement && lastSheet != null)
+        if (client.AwaitingScoreAcknowledgement && lastSheet != null && now - roundEndedAt >= ResultDelay)
         {
             state.GameOver = game.GameIsFinished;
             state.Result = lastSheet;
@@ -218,12 +227,14 @@ internal sealed class MatchController : IDisposable
 
     public void Dispose()
     {
+        hologram?.Dispose();
         view?.Dispose();
         view = null;
     }
 
     private void OnRoundCreated(ClientRoundState r, RoundStartInfo info, GameState game)
     {
+        HideRoundEnd();
         view?.Dispose();
         timings = AnimationTimings.Default(client.Settings);
         lastSheet = null;
@@ -278,6 +289,23 @@ internal sealed class MatchController : IDisposable
             }
             timer = v;
         };
+    }
+
+    private void ShowRoundEnd(RoundEndCall call)
+    {
+        HideRoundEnd();
+        if (view == null)
+            return;
+        hologram = new RoundEndHologram(view.Root, view.Unit, call, ObserverSeat, MoonFonts.WorkshopHead, now);
+        view.SetWinningTile(call.WinningTile);
+        Plugin.Logger.LogInfo($"Round end: {call.Text} {call.Detail} (seats {string.Join(",", call.Seats)}, winning tile {call.WinningTile?.ToString() ?? "none"})");
+    }
+
+    private void HideRoundEnd()
+    {
+        hologram?.Dispose();
+        hologram = null;
+        view?.SetWinningTile(null);
     }
 
     // The discard the player is being asked about, while they may chii, pon or kan it (requested: it stands out).
